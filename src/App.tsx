@@ -1,0 +1,48 @@
+import { Routes, Route } from "react-router-dom";
+import Home from "@/pages/Home";
+import Dashboard from "@/pages/Dashboard";
+import Nodes from "@/pages/Nodes";
+import Pods from "@/pages/Pods";
+import Workloads from "@/pages/Workloads";
+import Settings from "@/pages/Settings";
+import AIDiagnosis from "@/pages/AIDiagnosis";
+import { useState } from "react";
+import { AuthContext } from '@/contexts/authContext';
+import { ThemeProvider } from '@/contexts/themeContext';
+import { Toaster } from 'sonner';
+
+export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(true); // 默认已认证，便于演示
+
+  const logout = () => {
+    setIsAuthenticated(false);
+  };
+
+  const login = (username: string, password: string) => {
+    // 简化的登录逻辑，实际应用中应该有更复杂的认证流程
+    if (username && password) {
+      setIsAuthenticated(true);
+      return true;
+    }
+    return false;
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{ isAuthenticated, setIsAuthenticated, logout, login }}
+    >
+      <ThemeProvider>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/nodes" element={<Nodes />} />
+          <Route path="/pods" element={<Pods />} />
+          <Route path="/workloads" element={<Workloads />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/ai-diagnosis" element={<AIDiagnosis />} />
+        </Routes>
+        <Toaster position="top-right" />
+      </ThemeProvider>
+    </AuthContext.Provider>
+  );
+}

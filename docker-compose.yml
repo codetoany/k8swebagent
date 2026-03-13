@@ -1,0 +1,9 @@
+services:
+  k8s-agent-frontend:
+    container_name: k8s-agent-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${APP_PORT:-3000}:80"
+    restart: unless-stopped

@@ -1,0 +1,806 @@
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+  import { 
+    Server, BarChart3, Database, Network, Settings, LogOut, 
+    Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
+    RefreshCw, PlusCircle, MoreVertical, Filter, Download,
+    AlertCircle, CheckCircle, ArrowUpDown, Eye, PauseCircle, 
+    PlayCircle, Trash2, Edit2, Clock, User,
+
+  } from 'lucide-react';
+import { useThemeContext } from '@/contexts/themeContext';
+import { useContext } from 'react';
+import { AuthContext } from '@/contexts/authContext';
+import { useNavigate } from 'react-router-dom';
+
+// 模拟 Pod 数据
+const podsData = [
+  {
+    id: 'web-app-789df',
+    name: 'web-app-789df',
+    namespace: 'default',
+    status: 'running',
+    node: 'node-1',
+    ip: '10.244.1.10',
+    containers: [
+      { name: 'web-app', ready: true, restartCount: 0, image: 'nginx:1.23' },
+      { name: 'sidecar', ready: true, restartCount: 0, image: 'busybox:latest' }
+    ],
+    age: '5d',
+    cpuUsage: 12,
+    memoryUsage: 256,
+    labels: {
+      'app': 'web-app',
+      'version': 'v1'
+    }
+  },
+  {
+    id: 'api-server-567gh',
+    name: 'api-server-567gh',
+    namespace: 'default',
+    status: 'running',
+    node: 'node-2',
+    ip: '10.244.2.15',
+    containers: [
+      { name: 'api-server', ready: true, restartCount: 1, image: 'my-api:v2.1.0' }
+    ],
+    age: '3d',
+    cpuUsage: 45,
+    memoryUsage: 1024,
+    labels: {
+      'app': 'api-server',
+      'environment': 'production'
+    }
+  },
+  {
+    id: 'database-123ab',
+    name: 'database-123ab',
+    namespace: 'default',
+    status: 'running',
+    node: 'node-3',
+    ip: '10.244.3.20',
+    containers: [
+      { name: 'postgres', ready: true, restartCount: 0, image: 'postgres:14' }
+    ],
+    age: '7d',
+    cpuUsage: 28,
+    memoryUsage: 2048,
+    labels: {
+      'app': 'database',
+      'db': 'postgres'
+    }
+  },
+  {
+    id: 'worker-456cd',
+    name: 'worker-456cd',
+    namespace: 'default',
+    status: 'running',
+    node: 'node-4',
+    ip: '10.244.4.25',
+    containers: [
+      { name: 'worker', ready: true, restartCount: 2, image: 'worker:v1.3.0' }
+    ],
+    age: '2d',
+    cpuUsage: 75,
+    memoryUsage: 512,
+    labels: {
+      'app': 'worker',
+      'queue': 'tasks'
+    }
+  },
+  {
+    id: 'monitoring-789ef',
+    name: 'monitoring-789ef',
+    namespace: 'kube-system',
+    status: 'running',
+    node: 'node-5',
+    ip: '10.244.5.30',
+    containers: [
+      { name: 'prometheus', ready: true, restartCount: 0, image: 'prometheus:latest' },
+      { name: 'grafana', ready: true, restartCount: 0, image: 'grafana:latest' }
+    ],
+    age: '10d',
+    cpuUsage: 18,
+    memoryUsage: 768,
+    labels: {
+      'app': 'monitoring',
+      'component': 'metrics'
+    }
+  },
+  {
+    id: 'cron-job-123gh',
+    name: 'cron-job-123gh',
+    namespace: 'default',
+    status: 'succeeded',
+    node: 'node-6',
+    ip: '10.244.6.35',
+    containers: [
+      { name: 'cron-task', ready: false, restartCount: 0, image: 'cron-job:v1.0.0' }
+    ],
+    age: '1h',
+    cpuUsage: 5,
+    memoryUsage: 128,
+    labels: {
+      'app': 'cron-job',
+      'schedule': 'hourly'
+    }
+  },
+  {
+    id: 'broken-pod-456ij',
+    name: 'broken-pod-456ij',
+    namespace: 'default',
+    status: 'failed',
+    node: 'node-1',
+    ip: '10.244.1.40',
+    containers: [
+      { name: 'faulty-app', ready: false, restartCount: 15, image: 'faulty-app:v1.0.0' }
+    ],
+    age: '30m',
+    cpuUsage: 0,
+    memoryUsage: 0,
+    labels: {
+      'app': 'broken-app',
+      'test': 'failure'
+    }
+  },
+  {
+    id: 'paused-pod-789kl',
+    name: 'paused-pod-789kl',
+    namespace: 'dev',
+    status: 'paused',
+    node: 'node-2',
+    ip: '10.244.2.45',
+    containers: [
+      { name: 'test-app', ready: false, restartCount: 0, image: 'test-app:v0.1.0' }
+    ],
+    age: '2d',
+    cpuUsage: 0,
+    memoryUsage: 0,
+    labels: {
+      'app': 'test-app',
+      'environment': 'development'
+    }
+  }
+];
+
+// 模拟命名空间数据
+const namespaces = ['全部', 'default', 'kube-system', 'dev', 'prod', 'kube-public'];
+
+const Pods = () => {
+  const { theme, toggleTheme } = useThemeContext();
+  const { logout } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading] = useState(false);
+  const [pods, setPods] = useState(podsData);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPod, setSelectedPod] = useState<any>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
+  const [selectedNamespace, setSelectedNamespace] = useState('全部');
+
+  // 处理登出
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  // 导航到其他页面
+  const navigateTo = (path: string) => {
+    navigate(path);
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  };
+
+  // 过滤和排序 Pods
+  const filteredAndSortedPods = pods
+    .filter(pod => {
+      const matchesSearch = 
+        pod.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        pod.ip.includes(searchTerm) ||
+        pod.status.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesNamespace = selectedNamespace === '全部' || pod.namespace === selectedNamespace;
+      
+      return matchesSearch && matchesNamespace;
+    })
+    .sort((a, b) => {
+      if (!sortConfig) return 0;
+      if (a[sortConfig.key as keyof typeof a] < b[sortConfig.key as keyof typeof b]) {
+        return sortConfig.direction === 'ascending' ? -1 : 1;
+      }
+      if (a[sortConfig.key as keyof typeof a] > b[sortConfig.key as keyof typeof b]) {
+        return sortConfig.direction === 'ascending' ? 1 : -1;
+      }
+      return 0;
+    });
+
+  // 处理排序
+  const handleSort = (key: string) => {
+    let direction: 'ascending' | 'descending' = 'ascending';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // 渲染状态指示器
+  const renderStatusIndicator = (status: string) => {
+    switch(status) {
+      case 'running':
+        return (
+          <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+            <CheckCircle size={12} className="mr-1" />
+            运行中
+          </span>
+        );
+      case 'succeeded':
+        return (
+          <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+            <CheckCircle size={12} className="mr-1" />
+            已完成
+          </span>
+        );
+      case 'failed':
+        return (
+          <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+            <AlertCircle size={12} className="mr-1" />
+            失败
+          </span>
+        );
+      case 'paused':
+        return (
+          <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+            <PauseCircle size={12} className="mr-1" />
+            已暂停
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+            <Clock size={12} className="mr-1" />
+            {status}
+          </span>
+        );
+    }
+  };
+
+  // 渲染容器状态
+  const renderContainerStatus = (ready: boolean) => {
+    return ready ? (
+      <span className="inline-flex items-center text-xs px-2 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+        <CheckCircle size={10} className="mr-1" />
+        就绪
+      </span>
+    ) : (
+      <span className="inline-flex items-center text-xs px-2 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+        <AlertCircle size={10} className="mr-1" />
+        未就绪
+      </span>
+    );
+  };
+
+  // 渲染导航项
+  const renderNavItem = (icon: React.ReactNode, label: string, path: string, active: boolean = false) => (
+    <motion.div 
+      className={`flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer transition-all duration-300
+        ${active 
+          ? theme === 'dark' 
+            ? 'bg-blue-900/30 text-blue-400' 
+            : 'bg-blue-50 text-blue-600' 
+          : theme === 'dark' 
+            ? 'hover:bg-gray-800 text-gray-300' 
+            : 'hover:bg-gray-100 text-gray-700'
+        }`}
+      onClick={() => navigateTo(path)}
+    >
+      <span className="text-lg">{icon}</span>
+      <span className="font-medium">{label}</span>
+    </motion.div>
+  );
+
+  // Pod 详情视图
+  const renderPodDetail = () => {
+    if (!selectedPod) return null;
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${theme === 'dark' ? 'bg-black/50' : 'bg-black/20'}`}
+        onClick={() => setSelectedPod(null)}
+      >
+        <div 
+          className={`w-full max-w-4xl rounded-xl overflow-hidden ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} shadow-xl max-h-[90vh] overflow-y-auto`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-5 border-b border-gray-700 flex items-center justify-between">
+            <h3 className="text-lg font-bold">Pod 详情: {selectedPod.name}</h3>
+            <button 
+              className={`p-1 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+              onClick={() => setSelectedPod(null)}
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="p-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="space-y-4">
+                <div>
+                  <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>基本信息</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>状态</p>
+                        <p className="font-medium">{renderStatusIndicator(selectedPod.status)}</p>
+                      </div>
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>命名空间</p>
+                        <p className="font-medium">{selectedPod.namespace}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>节点</p>
+                        <p className="font-medium">{selectedPod.node}</p>
+                      </div>
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Pod IP</p>
+                        <p className="font-medium">{selectedPod.ip}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>创建时间</p>
+                        <p className="font-medium">{selectedPod.age}</p>
+                      </div>
+                      <div>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>容器数量</p>
+                        <p className="font-medium">{selectedPod.containers.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>资源使用</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>CPU</p>
+                      <p className="font-medium">{selectedPod.cpuUsage}m</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>内存</p>
+                      <p className="font-medium">{selectedPod.memoryUsage}Mi</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>容器</h4>
+                  <div className="space-y-3">
+                    {selectedPod.containers.map((container: any, index: number) => (
+                      <div key={index} className={`p-3 rounded-lg border ${theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="font-medium">{container.name}</p>
+                          {renderContainerStatus(container.ready)}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-xs opacity-70">镜像</span>
+                            <span className="text-xs">{container.image}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs opacity-70">重启次数</span>
+                            <span className="text-xs">{container.restartCount}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>标签</h4>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(selectedPod.labels).map(([key, value], index) => (
+                  <span 
+                    key={index}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      theme === 'dark' 
+                        ? 'bg-gray-700 text-gray-300' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    {key}: {value}
+                  </span>
+                ))}
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} text-sm`}>
+                <Trash2 size={16} className="inline mr-1" />
+                删除
+              </button>
+              <button className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-sm`}>
+                <Edit2 size={16} className="inline mr-1" />
+                编辑
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { 
+      opacity: 1,
+      transition: { 
+        duration: 0.5,
+        staggerChildren: 0.1
+      }
+    }
+  };
+  
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: { 
+      y: 0, 
+      opacity: 1,
+      transition: { duration: 0.3 }
+    }
+  };
+
+  return (
+    <div className={`min-h-screen flex ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-300`}>
+      {/* 侧边栏 - 移动端 */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setSidebarOpen(false)}></div>
+          <motion.div 
+            className={`fixed top-0 left-0 h-full w-64 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} shadow-lg`}
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="p-4 flex justify-between items-center border-b border-gray-700">
+              <div className="flex items-center space-x-2">
+                <Server className="text-blue-500" />
+                <h2 className="text-xl font-bold">K8s Agent</h2>
+              </div>
+              <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-md hover:bg-gray-700">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-1">
+               {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
+               {renderNavItem(<Server size={20} />, '节点', '/nodes')}
+               {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
+               {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+               {renderNavItem(<Settings size={20} />, '设置', '/settings')}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* 侧边栏 - 桌面端 */}
+      <div className={`hidden lg:flex lg:flex-col w-64 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border-r ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} h-screen fixed`}>
+        <div className="p-4 border-b border-gray-700 flex items-center space-x-2">
+          <Server className="text-blue-500" />
+          <h2 className="text-xl font-bold">K8s Agent</h2>
+        </div>
+        <div className="p-4 space-y-1 flex-1 overflow-y-auto">
+          {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
+          {renderNavItem(<Server size={20} />, '节点', '/nodes')}
+          {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
+          {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+          {renderNavItem(<Settings size={20} />, '设置', '/settings')}
+          {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
+        </div>
+        <div className="p-4 border-t border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className={`w-8 h-8 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
+                <User size={16} />
+              </div>
+              <div>
+                <div className="text-sm font-medium">管理员</div>
+                <div className="text-xs opacity-70">admin@k8s-agent.com</div>
+              </div>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+              aria-label="退出登录"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 主内容区 */}
+      <div className="flex-1 lg:ml-64">
+        {/* 顶部导航栏 */}
+        <header className={`sticky top-0 z-40 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} p-4`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <button 
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-md hover:bg-gray-700"
+              >
+                <Menu size={20} />
+              </button>
+              <h1 className="text-xl font-bold">Pods 管理</h1>
+            </div>
+            <div className="flex items-center space-x-3">
+              <button 
+                onClick={toggleTheme}
+                className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                aria-label={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
+              >
+                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+              </button>
+              <button className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} relative`}>
+                <Bell size={20} />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Pods 管理内容 */}
+        <main className="p-4 md:p-6">
+          {loading ? (
+            <div className={`p-5 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm animate-pulse-slow`}>
+              <div className="flex flex-col space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className={`h-8 w-1/4 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                  <div className="flex space-x-2">
+                    <div className={`h-8 w-20 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                    <div className={`h-8 w-20 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                  </div>
+                </div>
+                <div className={`h-10 w-1/3 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+                <div className={`overflow-hidden rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                  {[1, 2, 3, 4].map((item) => (
+                    <div key={item} className={`h-14 w-full ${item !== 4 ? 'border-b border-gray-600' : ''}`}></div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <motion.div 
+              initial="hidden"
+              animate="visible"
+              variants={containerVariants}
+            >
+              {/* 顶部工具栏 */}
+              <motion.div 
+                variants={itemVariants}
+                className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4"
+              >
+                <div>
+                  <h2 className="text-xl font-bold mb-1">集群 Pods</h2>
+                  <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                    管理和监控 Kubernetes 集群中的所有 Pods
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3 w-full md:w-auto">
+                  <div className={`relative flex-1 md:flex-none md:w-64 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg overflow-hidden`}>
+                    <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <input
+                      type="text"
+                      placeholder="搜索 Pods..."
+                      className={`w-full pl-9 pr-3 py-2 text-sm focus:outline-none ${theme === 'dark' ? 'bg-transparent text-white' : 'bg-transparent text-gray-900'}`}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <div className="relative">
+                    <select
+                      className={`appearance-none pl-3 pr-8 py-2 rounded-lg text-sm focus:outline-none ${
+                        theme === 'dark' 
+                          ? 'bg-gray-700 border-gray-600' 
+                          : 'bg-gray-100 border-gray-200'
+                      } border`}
+                      value={selectedNamespace}
+                      onChange={(e) => setSelectedNamespace(e.target.value)}
+                    >
+                      {namespaces.map((namespace) => (
+                        <option key={namespace} value={namespace}>
+                          {namespace}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className={`absolute right-3 top-1/2 transform -translate-y-1/2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </div>
+                  <button className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center space-x-1 text-sm`}>
+                    <Filter size={16} />
+                    <span>筛选</span>
+                  </button>
+                  <button className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center space-x-1 text-sm`}>
+                    <Download size={16} />
+                    <span>导出</span>
+                  </button>
+                  <button className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-sm flex items-center space-x-1`}>
+                    <PlusCircle size={16} />
+                    <span>创建 Pod</span>
+                  </button>
+                </div>
+              </motion.div>
+
+              {/* Pods 统计卡片 */}
+              <motion.div 
+                variants={itemVariants}
+                className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6"
+              >
+                <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
+                  <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mb-1`}>总 Pods 数</h3>
+                  <p className="text-2xl font-bold">{pods.length}</p>
+                </div>
+                <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
+                  <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mb-1`}>运行中</h3>
+                  <p className="text-2xl font-bold text-green-500">{pods.filter(pod => pod.status === 'running').length}</p>
+                </div>
+                <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
+                  <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mb-1`}>已暂停</h3>
+                  <p className="text-2xl font-bold text-yellow-500">{pods.filter(pod => pod.status === 'paused').length}</p>
+                </div>
+                <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
+                  <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'} mb-1`}>失败</h3>
+                  <p className="text-2xl font-bold text-red-500">{pods.filter(pod => pod.status === 'failed').length}</p>
+                </div>
+              </motion.div>
+
+              {/* Pods 列表 */}
+              <motion.div 
+                variants={itemVariants}
+                className={`rounded-xl overflow-hidden ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}
+              >
+                <div className={`overflow-x-auto`}>
+                  <table className="w-full">
+                    <thead>
+                      <tr className={`border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('name')}>
+                            <span>Pod 名称</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('namespace')}>
+                            <span>命名空间</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('status')}>
+                            <span>状态</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('node')}>
+                            <span>节点</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('containers')}>
+                            <span>容器</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center cursor-pointer" onClick={() => handleSort('age')}>
+                            <span>创建时间</span>
+                            <ArrowUpDown size={14} className="ml-1" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <span>操作</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700' : 'divide-gray-200'}`}>
+                      {filteredAndSortedPods.map((pod) => (
+                        <tr 
+                          key={pod.id}
+                          className={`${theme === 'dark' ? 'hover:bg-gray-750' : 'hover:bg-gray-50'} cursor-pointer transition-colors`}
+                          onClick={() => setSelectedPod(pod)}
+                        >
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <Database size={16} className={`mr-2 ${
+                                pod.status === 'running' ? 'text-green-500' : 
+                                pod.status === 'failed' ? 'text-red-500' : 
+                                pod.status === 'paused' ? 'text-yellow-500' : 'text-blue-500'
+                              }`} />
+                              <div className="font-medium">{pod.name}</div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              theme === 'dark' 
+                                ? 'bg-gray-700' 
+                                : 'bg-gray-100'
+                            }`}>
+                              {pod.namespace}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            {renderStatusIndicator(pod.status)}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <span>{pod.node}</span>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex flex-col space-y-1">
+                              {pod.containers.slice(0, 2).map((container: any, index: number) => (
+                                <div key={index} className="flex items-center text-xs">
+                                  {renderContainerStatus(container.ready)}
+                                  <span className="ml-2 truncate max-w-[150px]">{container.name}</span>
+                                </div>
+                              ))}
+                              {pod.containers.length > 2 && (
+                                <div className="text-xs text-gray-500">+{pod.containers.length - 2} 个容器</div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <span>{pod.age}</span>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                            <div className="flex items-center justify-end space-x-2">
+                              <button 
+                                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedPod(pod);
+                                }}
+                              >
+                                <Eye size={16} />
+                              </button>
+                              <button 
+                                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {filteredAndSortedPods.length === 0 && (
+                  <div className="p-8 text-center"><Database size={48} className={`mx-auto mb-4 opacity-20 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
+                    <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>没有找到匹配的 Pod</p>
+                  </div>
+                )}
+              </motion.div>
+              
+              {/* Pod 详情弹窗 */}
+              {renderPodDetail()}
+            </motion.div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default Pods;

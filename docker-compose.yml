@@ -1,9 +1,67 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: k8s-agent-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-k8s_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-k8s_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-k8s_agent}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-k8s_agent} -d ${POSTGRES_DB:-k8s_agent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: k8s-agent-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  k8s-agent-api:
+    container_name: k8s-agent-api
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8080
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-k8s_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-k8s_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-k8s_agent}
+      REDIS_ENABLED: "true"
+      REDIS_URL: redis://redis:6379
+      REDIS_TTL_SECONDS: 60
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   k8s-agent-frontend:
     container_name: k8s-agent-frontend
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      k8s-agent-api:
+        condition: service_started
     ports:
       - "${APP_PORT:-3000}:80"
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

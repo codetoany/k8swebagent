@@ -2,6 +2,7 @@ node_modules
 backend/node_modules
 dist
 backend/dist
+backend/bin
 dist-ssr
 .git
 .idea

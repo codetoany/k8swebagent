@@ -1,28 +1,26 @@
-FROM node:22-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
 
-RUN corepack enable \
-    && pnpm install --frozen-lockfile
+COPY go.mod go.sum ./
+RUN go mod download
 
-COPY tsconfig.json ./
-COPY src ./src
+COPY cmd ./cmd
+COPY internal ./internal
 
-RUN pnpm build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/k8s-agent-api ./cmd/server
 
-FROM node:22-alpine
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
-
-RUN corepack enable \
-    && pnpm install --prod --frozen-lockfile
-
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /out/k8s-agent-api ./k8s-agent-api
 
 EXPOSE 8080
 
-CMD ["node", "dist/app.js"]
+CMD ["./k8s-agent-api"]

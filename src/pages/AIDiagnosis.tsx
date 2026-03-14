@@ -459,9 +459,9 @@ export default function AIDiagnosis() {
         </div>
       </div>
 
-      <div className="lg:ml-64">
+      <div className="lg:ml-64 flex min-h-screen flex-col">
         <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-          <div className="flex items-start justify-between gap-4 px-4 py-4 md:px-6 md:py-5">
+          <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
             <div className="flex min-w-0 items-start gap-4">
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -491,11 +491,53 @@ export default function AIDiagnosis() {
               </button>
               <NotificationCenter />
             </div>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm opacity-70">当前分析集群</div>
+                <div className="mt-1 truncate text-xl font-bold md:text-2xl">{welcomeClusterName}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>
+                    {connectionMeta.label}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    更新时间: {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center xl:justify-end">
+                <ClusterSelector
+                  theme={theme}
+                  clusters={enabledClusters}
+                  value={selectedClusterId}
+                  loading={clusterLoading}
+                  onChange={setSelectedClusterId}
+                />
+                <button
+                  onClick={() => void refreshClusterStatus()}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium ${
+                    isDark ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <RefreshCw size={16} className={refreshingCluster ? 'animate-spin' : ''} />
+                  刷新诊断上下文
+                </button>
+                <button
+                  onClick={handleNewConversation}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <PlusCircle size={16} />
+                  新建会话
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 
-        <main className="flex flex-col gap-6 p-4 md:p-6 xl:h-[calc(100vh-5.5rem)] xl:overflow-hidden">
-          <section className={`rounded-2xl border p-5 shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+        <main className="flex flex-1 flex-col gap-6 p-4 md:p-6 xl:min-h-0">
+          <section className="hidden">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <div className="text-sm opacity-70">当前分析集群</div>

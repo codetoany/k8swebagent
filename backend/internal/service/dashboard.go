@@ -290,7 +290,7 @@ func buildResourceUsagePoints(overview DashboardOverview, resourceRange Resource
 	default:
 		return buildResourceUsageWindowPoints(
 			overview,
-			[]string{"00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "现在"},
+			buildCurrentDayLabels(now),
 			[]float64{0.48, 0.43, 0.68, 0.84, 0.96, 0.82, 1.0},
 			[]float64{0.34, 0.31, 0.52, 0.76, 0.88, 0.74, 1.0},
 			[]float64{0.56, 0.53, 0.66, 0.78, 0.89, 0.81, 1.0},
@@ -384,6 +384,26 @@ func buildCurrentMonthLabels(now time.Time) []string {
 	labels := make([]string, 0, localNow.Day())
 	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
 		labels = append(labels, date.Format("01/02"))
+	}
+
+	return labels
+}
+
+func buildCurrentDayLabels(now time.Time) []string {
+	localNow := now.Local()
+	labels := []string{"00:00"}
+	currentSlotStart := (localNow.Hour() / 4) * 4
+
+	for hour := 4; hour < currentSlotStart; hour += 4 {
+		labels = append(labels, fmt.Sprintf("%02d:00", hour))
+	}
+
+	currentLabel := localNow.Format("15:04")
+	if localNow.Minute() == 0 {
+		currentLabel = fmt.Sprintf("%02d:00", localNow.Hour())
+	}
+	if labels[len(labels)-1] != currentLabel {
+		labels = append(labels, currentLabel)
 	}
 
 	return labels

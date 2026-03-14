@@ -193,6 +193,7 @@ export default function AIDiagnosis() {
   const [inputMessage, setInputMessage] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isDark = theme === 'dark';
   const connectionMeta = getConnectionMeta(clusterStatus?.connectionState || 'unknown', theme);
@@ -214,6 +215,17 @@ export default function AIDiagnosis() {
       behavior: 'smooth',
     });
   }, [messages, sending]);
+
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) {
+      return;
+    }
+
+    composer.style.height = '0px';
+    const nextHeight = Math.min(Math.max(composer.scrollHeight, 72), 220);
+    composer.style.height = `${nextHeight}px`;
+  }, [inputMessage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -684,11 +696,12 @@ export default function AIDiagnosis() {
                   <div className={`shrink-0 border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                     <div className="relative">
                       <textarea
+                        ref={composerRef}
                         value={inputMessage}
                         onChange={(event) => setInputMessage(event.target.value)}
                         onKeyDown={handleInputKeyDown}
                         placeholder="请输入你的问题，例如：为什么 openebs 的工作负载一直不稳定？当前是否存在需要优先处理的风险？"
-                        className={`h-28 w-full resize-none rounded-xl border px-4 py-3 pr-14 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        className={`min-h-[72px] max-h-[220px] w-full resize-none overflow-y-auto rounded-xl border px-4 py-3 pr-14 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                           isDark ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
                         }`}
                       />

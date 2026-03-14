@@ -15,6 +15,8 @@ export const nodesAPI = {
   listNodes: "/nodes",
   getNodeDetail: "/nodes/:name",
   getNodeMetrics: "/nodes/:name/metrics",
+  cordonNode: "/nodes/:name/cordon",
+  uncordonNode: "/nodes/:name/uncordon",
 };
 
 export const podsAPI = {

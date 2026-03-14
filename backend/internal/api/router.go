@@ -94,6 +94,8 @@ func NewRouter(
 
 	router.Route("/api/nodes", func(r chi.Router) {
 		r.Get("/", h.wrap(h.listNodes))
+		r.Post("/{name}/cordon", h.wrap(h.cordonNode))
+		r.Post("/{name}/uncordon", h.wrap(h.uncordonNode))
 		r.Get("/{name}/metrics", h.wrap(h.nodesMetrics))
 		r.Get("/{name}", h.wrap(h.nodeDetail))
 	})
@@ -554,6 +556,34 @@ func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
 
 		return payload, nil
 	})
+}
+
+func (h *handler) cordonNode(w http.ResponseWriter, r *http.Request) error {
+	return h.setNodeSchedulable(w, r, false)
+}
+
+func (h *handler) uncordonNode(w http.ResponseWriter, r *http.Request) error {
+	return h.setNodeSchedulable(w, r, true)
+}
+
+func (h *handler) setNodeSchedulable(w http.ResponseWriter, r *http.Request, schedulable bool) error {
+	clusterID := requestedClusterID(r)
+	name := chi.URLParam(r, "name")
+	item, err := h.nodesService.SetSchedulable(r.Context(), clusterID, name, schedulable)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrNodeNotFound):
+			return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+		case errors.Is(err, service.ErrNodeLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	writeJSON(w, http.StatusOK, item)
+	return nil
 }
 
 func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {

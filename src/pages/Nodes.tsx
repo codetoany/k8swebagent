@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
   import { 
     Server, BarChart3, Database, Network, Settings, LogOut, 
     Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
     RefreshCw, PlusCircle, MoreVertical, Filter, Download,
-    AlertCircle, CheckCircle, ArrowUpDown, Eye, User,
+    AlertCircle, CheckCircle, ArrowUpDown, Eye, User, PauseCircle, PlayCircle,
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
@@ -13,8 +13,9 @@ import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
-import { nodesAPI } from '@/lib/api';
+import { nodesAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
 
@@ -78,6 +79,9 @@ const Nodes = () => {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [actionLoadingKey, setActionLoadingKey] = useState('');
+
+  const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
 
   useEffect(() => {
     let active = true;
@@ -122,6 +126,42 @@ const Nodes = () => {
     navigate(path);
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
+    }
+  };
+
+  const isNodeSchedulable = (node: any) => node?.schedulable !== false;
+
+  const syncNodeState = (updatedNode: any) => {
+    setNodes((current) =>
+      current.map((item) => (item.name === updatedNode.name ? updatedNode : item)),
+    );
+    setSelectedNode((current: any) => (current?.name === updatedNode.name ? updatedNode : current));
+  };
+
+  const handleToggleScheduling = async (node: any) => {
+    const currentlySchedulable = isNodeSchedulable(node);
+    const confirmed = window.confirm(
+      currentlySchedulable
+        ? `确认将节点 "${node.name}" 设为不可调度吗？`
+        : `确认恢复节点 "${node.name}" 的调度吗？`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${node.name}:${currentlySchedulable ? 'cordon' : 'uncordon'}`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(
+        currentlySchedulable ? nodesAPI.cordonNode : nodesAPI.uncordonNode,
+        { name: node.name },
+      );
+      const updatedNode = await apiClient.post<any>(endpoint, undefined, { params: clusterParams });
+      syncNodeState(updatedNode);
+      toast.success(currentlySchedulable ? `节点 ${node.name} 已设为不可调度` : `节点 ${node.name} 已恢复调度`);
+    } finally {
+      setActionLoadingKey('');
     }
   };
 
@@ -189,7 +229,7 @@ const Nodes = () => {
   };
 
   // 渲染导航项
-  const renderNavItem = (icon: React.ReactNode, label: string, path: string, active: boolean = false) => (
+  const renderNavItem = (icon: ReactNode, label: string, path: string, active: boolean = false) => (
     <motion.div 
       className={`flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer transition-all duration-300
         ${active 
@@ -376,6 +416,44 @@ const Nodes = () => {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-6 mb-6">
+              <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>调度状态</h4>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  {isNodeSchedulable(selectedNode) ? (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      <CheckCircle size={12} className="mr-1" />
+                      可调度
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                      <PauseCircle size={12} className="mr-1" />
+                      已禁止调度
+                    </span>
+                  )}
+                </div>
+                <button
+                  className={`px-4 py-2 rounded-lg text-sm ${
+                    isNodeSchedulable(selectedNode)
+                      ? theme === 'dark'
+                        ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                        : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                      : theme === 'dark'
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-green-500 hover:bg-green-600 text-white'
+                  }`}
+                  onClick={() => void handleToggleScheduling(selectedNode)}
+                  disabled={actionLoadingKey === `${selectedNode.name}:${isNodeSchedulable(selectedNode) ? 'cordon' : 'uncordon'}`}
+                >
+                  {actionLoadingKey === `${selectedNode.name}:${isNodeSchedulable(selectedNode) ? 'cordon' : 'uncordon'}`
+                    ? '处理中...'
+                    : isNodeSchedulable(selectedNode)
+                      ? '设为不可调度'
+                      : '恢复调度'}
+                </button>
               </div>
             </div>
             
@@ -714,10 +792,17 @@ const Nodes = () => {
                                 <Eye size={16} />
                               </button>
                               <button 
-                                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
-                                onClick={(e) => e.stopPropagation()}
+                                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} ${
+                                  isNodeSchedulable(node) ? 'text-yellow-500' : 'text-green-500'
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleToggleScheduling(node);
+                                }}
+                                disabled={actionLoadingKey === `${node.name}:${isNodeSchedulable(node) ? 'cordon' : 'uncordon'}`}
+                                title={isNodeSchedulable(node) ? '设为不可调度' : '恢复调度'}
                               >
-                                <MoreVertical size={16} />
+                                {isNodeSchedulable(node) ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                               </button>
                             </div>
                           </td>

@@ -17,11 +17,24 @@ rules:
   - apiGroups: [""]
     resources:
       - nodes
-      - pods
-      - pods/log
       - namespaces
       - events
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: [""]
+    resources:
+      - pods
     verbs: ["get", "list", "watch", "delete"]
+
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: [""]
+    resources:
+      - nodes
+    verbs: ["patch", "update"]
 
   - apiGroups: ["apps"]
     resources:
@@ -30,6 +43,13 @@ rules:
       - daemonsets
       - replicasets
     verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+    verbs: ["patch", "update"]
 
   - apiGroups: ["batch"]
     resources:

@@ -15,10 +15,15 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
-var ErrNodeNotFound = errors.New("node not found")
+var (
+	ErrNodeNotFound          = errors.New("node not found")
+	ErrNodeLiveClusterNeeded = errors.New("node action requires a live cluster")
+)
 
 type NodesService struct {
 	snapshotStore *store.SnapshotStore
@@ -29,6 +34,7 @@ type NodeListItem struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	Status         string            `json:"status"`
+	Schedulable    bool              `json:"schedulable"`
 	CPUUsage       int               `json:"cpuUsage"`
 	MemoryUsage    int               `json:"memoryUsage"`
 	Pods           int               `json:"pods"`
@@ -103,6 +109,48 @@ func (s *NodesService) MetricsPayload(ctx context.Context, clusterID string, nam
 	}
 
 	return nil, ErrNodeNotFound
+}
+
+func (s *NodesService) SetSchedulable(
+	ctx context.Context,
+	clusterID string,
+	name string,
+	schedulable bool,
+) (NodeListItem, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return NodeListItem{}, ErrNodeLiveClusterNeeded
+	case err != nil:
+		return NodeListItem{}, err
+	}
+
+	node, err := clientset.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return NodeListItem{}, ErrNodeNotFound
+	}
+	if err != nil {
+		return NodeListItem{}, err
+	}
+
+	targetUnschedulable := !schedulable
+	if node.Spec.Unschedulable != targetUnschedulable {
+		node.Spec.Unschedulable = targetUnschedulable
+		node, err = clientset.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return NodeListItem{}, ErrNodeNotFound
+		}
+		if err != nil {
+			return NodeListItem{}, err
+		}
+	}
+
+	pods, err := listPodsForNode(ctx, clientset, name)
+	if err != nil {
+		return NodeListItem{}, err
+	}
+
+	return mapNode(*node, pods), nil
 }
 
 func (s *NodesService) list(ctx context.Context, clusterID string) ([]NodeListItem, error) {
@@ -199,6 +247,7 @@ func mapNode(node corev1.Node, pods []corev1.Pod) NodeListItem {
 		ID:             node.Name,
 		Name:           node.Name,
 		Status:         nodeStatus(node),
+		Schedulable:    !node.Spec.Unschedulable,
 		CPUUsage:       percentage(usedCPU.MilliValue(), allocCPU.MilliValue()),
 		MemoryUsage:    percentage(usedMemory.Value(), allocMemory.Value()),
 		Pods:           len(pods),
@@ -219,6 +268,25 @@ func mapNode(node corev1.Node, pods []corev1.Pod) NodeListItem {
 		Labels: copyStringMap(node.Labels),
 		Taints: mapTaints(node.Spec.Taints),
 	}
+}
+
+func listPodsForNode(ctx context.Context, clientset kubernetes.Interface, nodeName string) ([]corev1.Pod, error) {
+	podList, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pods := make([]corev1.Pod, 0, len(podList.Items))
+	for _, pod := range podList.Items {
+		if isTerminalPod(pod) {
+			continue
+		}
+		pods = append(pods, pod)
+	}
+
+	return pods, nil
 }
 
 func requestedResources(pod corev1.Pod) (*resource.Quantity, *resource.Quantity) {

@@ -461,8 +461,8 @@ export default function AIDiagnosis() {
 
       <div className="lg:ml-64 flex min-h-screen flex-col">
         <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-          <div className="grid gap-4 px-4 py-4 md:px-6 md:py-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-            <div className="flex min-w-0 items-start gap-4 xl:col-start-1 xl:row-span-2">
+          <div className="grid gap-3 px-4 py-3 md:px-6 md:py-4 xl:grid-cols-[minmax(0,1fr)_auto_auto] xl:items-center">
+            <div className="flex min-w-0 items-start gap-4 xl:col-start-1">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className={`mt-1 rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
@@ -475,7 +475,7 @@ export default function AIDiagnosis() {
                 </div>
                 <div className="min-w-0">
                   <h1 className="truncate text-xl font-bold md:text-2xl">AI 诊断助手</h1>
-                  <p className={`mt-1 text-sm md:text-base ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <p className={`mt-1 hidden text-sm 2xl:block ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                     结合真实集群状态、大模型推理与历史会话，输出诊断结论、风险判断和下一步建议。
                   </p>
                 </div>
@@ -491,8 +491,8 @@ export default function AIDiagnosis() {
               </button>
               <NotificationCenter />
             </div>
-            <div className={`flex flex-col gap-3 rounded-2xl border p-4 xl:col-start-2 xl:row-start-2 xl:min-w-[520px] ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-gray-50'}`}>
-              <div className="min-w-0">
+            <div className={`flex items-center gap-3 rounded-xl border px-3 py-2 xl:col-start-3 xl:row-start-1 xl:min-w-0 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-gray-50'}`}>
+              <div className="min-w-0 xl:max-w-[220px]">
                 <div className="text-sm opacity-70">当前分析集群</div>
                 <div className="mt-1 truncate text-xl font-bold md:text-2xl">{welcomeClusterName}</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -507,7 +507,7 @@ export default function AIDiagnosis() {
                   </span>
                 </div>
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center xl:justify-end">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 <ClusterSelector
                   theme={theme}
                   clusters={enabledClusters}

@@ -1,0 +1,278 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"time"
+
+	"k8s-agent-backend/internal/k8s"
+	"k8s-agent-backend/internal/store"
+
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+var ErrWorkloadNotFound = errors.New("workload not found")
+
+type WorkloadsService struct {
+	snapshotStore *store.SnapshotStore
+	k8sManager    *k8s.Manager
+}
+
+type WorkloadItem struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Namespace    string            `json:"namespace"`
+	Ready        int32             `json:"ready"`
+	Desired      int32             `json:"desired"`
+	Available    int32             `json:"available"`
+	UpToDate     int32             `json:"upToDate"`
+	Age          string            `json:"age"`
+	Images       []string          `json:"images"`
+	Labels       map[string]string `json:"labels"`
+	Selector     map[string]string `json:"selector,omitempty"`
+	Strategy     string            `json:"strategy,omitempty"`
+	ServiceName  string            `json:"serviceName,omitempty"`
+	Schedule     string            `json:"schedule,omitempty"`
+	LastSchedule string            `json:"lastSchedule,omitempty"`
+}
+
+func NewWorkloadsService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Manager) *WorkloadsService {
+	return &WorkloadsService{
+		snapshotStore: snapshotStore,
+		k8sManager:    k8sManager,
+	}
+}
+
+func (s *WorkloadsService) ListPayload(ctx context.Context, scope string) (json.RawMessage, error) {
+	items, err := s.list(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(items)
+}
+
+func (s *WorkloadsService) DetailPayload(ctx context.Context, scope string, namespace string, name string) (json.RawMessage, error) {
+	listPayload, err := s.ListPayload(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := findNamespacedPayload(listPayload, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return item, nil
+}
+
+func (s *WorkloadsService) list(ctx context.Context, scope string) ([]WorkloadItem, error) {
+	items, _, err := s.listWithSource(ctx, scope)
+	return items, err
+}
+
+func (s *WorkloadsService) listWithSource(ctx context.Context, scope string) ([]WorkloadItem, string, error) {
+	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		items, err := s.snapshotWorkloads(ctx, scope)
+		return items, "snapshot", err
+	case err != nil:
+		return nil, "", err
+	}
+
+	var items []WorkloadItem
+	switch scope {
+	case "deployments":
+		list, err := clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", err
+		}
+		items = make([]WorkloadItem, 0, len(list.Items))
+		for _, item := range list.Items {
+			items = append(items, mapDeployment(item))
+		}
+	case "statefulsets":
+		list, err := clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", err
+		}
+		items = make([]WorkloadItem, 0, len(list.Items))
+		for _, item := range list.Items {
+			items = append(items, mapStatefulSet(item))
+		}
+	case "daemonsets":
+		list, err := clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", err
+		}
+		items = make([]WorkloadItem, 0, len(list.Items))
+		for _, item := range list.Items {
+			items = append(items, mapDaemonSet(item))
+		}
+	case "cronjobs":
+		list, err := clientset.BatchV1().CronJobs("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", err
+		}
+		items = make([]WorkloadItem, 0, len(list.Items))
+		for _, item := range list.Items {
+			items = append(items, mapCronJob(item))
+		}
+	default:
+		return nil, "", fmt.Errorf("unsupported workload scope: %s", scope)
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Namespace == items[j].Namespace {
+			return items[i].Name < items[j].Name
+		}
+		return items[i].Namespace < items[j].Namespace
+	})
+
+	return items, "k8s", nil
+}
+
+func (s *WorkloadsService) snapshotWorkloads(ctx context.Context, scope string) ([]WorkloadItem, error) {
+	payload, err := s.snapshotStore.Get(ctx, scope, "list")
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return []WorkloadItem{}, nil
+	}
+
+	var items []WorkloadItem
+	if err := json.Unmarshal(payload, &items); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+func mapDeployment(item appsv1.Deployment) WorkloadItem {
+	desired := int32(1)
+	if item.Spec.Replicas != nil {
+		desired = *item.Spec.Replicas
+	}
+
+	return WorkloadItem{
+		ID:        fmt.Sprintf("%s-deployment", item.Name),
+		Name:      item.Name,
+		Namespace: item.Namespace,
+		Ready:     item.Status.ReadyReplicas,
+		Desired:   desired,
+		Available: item.Status.AvailableReplicas,
+		UpToDate:  item.Status.UpdatedReplicas,
+		Age:       formatAge(item.CreationTimestamp.Time, time.Now().UTC()),
+		Images:    containerImages(item.Spec.Template.Spec.Containers),
+		Labels:    copyStringMap(item.Labels),
+		Selector:  copyStringMap(item.Spec.Selector.MatchLabels),
+		Strategy:  string(item.Spec.Strategy.Type),
+	}
+}
+
+func mapStatefulSet(item appsv1.StatefulSet) WorkloadItem {
+	desired := int32(1)
+	if item.Spec.Replicas != nil {
+		desired = *item.Spec.Replicas
+	}
+
+	return WorkloadItem{
+		ID:          fmt.Sprintf("%s-statefulset", item.Name),
+		Name:        item.Name,
+		Namespace:   item.Namespace,
+		Ready:       item.Status.ReadyReplicas,
+		Desired:     desired,
+		Available:   item.Status.ReadyReplicas,
+		UpToDate:    item.Status.UpdatedReplicas,
+		Age:         formatAge(item.CreationTimestamp.Time, time.Now().UTC()),
+		Images:      containerImages(item.Spec.Template.Spec.Containers),
+		Labels:      copyStringMap(item.Labels),
+		Selector:    copyStringMap(item.Spec.Selector.MatchLabels),
+		ServiceName: item.Spec.ServiceName,
+	}
+}
+
+func mapDaemonSet(item appsv1.DaemonSet) WorkloadItem {
+	return WorkloadItem{
+		ID:        fmt.Sprintf("%s-daemonset", item.Name),
+		Name:      item.Name,
+		Namespace: item.Namespace,
+		Ready:     item.Status.NumberReady,
+		Desired:   item.Status.DesiredNumberScheduled,
+		Available: item.Status.NumberAvailable,
+		UpToDate:  item.Status.UpdatedNumberScheduled,
+		Age:       formatAge(item.CreationTimestamp.Time, time.Now().UTC()),
+		Images:    containerImages(item.Spec.Template.Spec.Containers),
+		Labels:    copyStringMap(item.Labels),
+		Selector:  copyStringMap(item.Spec.Selector.MatchLabels),
+	}
+}
+
+func mapCronJob(item batchv1.CronJob) WorkloadItem {
+	lastSchedule := ""
+	if item.Status.LastScheduleTime != nil {
+		lastSchedule = formatAge(item.Status.LastScheduleTime.Time, time.Now().UTC())
+	}
+
+	return WorkloadItem{
+		ID:           fmt.Sprintf("%s-cronjob", item.Name),
+		Name:         item.Name,
+		Namespace:    item.Namespace,
+		Ready:        0,
+		Desired:      0,
+		Available:    0,
+		UpToDate:     0,
+		Age:          formatAge(item.CreationTimestamp.Time, time.Now().UTC()),
+		Images:       containerImages(item.Spec.JobTemplate.Spec.Template.Spec.Containers),
+		Labels:       copyStringMap(item.Labels),
+		Schedule:     item.Spec.Schedule,
+		LastSchedule: lastSchedule,
+	}
+}
+
+func containerImages(containers []corev1.Container) []string {
+	if len(containers) == 0 {
+		return []string{}
+	}
+
+	images := make([]string, 0, len(containers))
+	for _, container := range containers {
+		images = append(images, container.Image)
+	}
+
+	return images
+}
+
+func findNamespacedPayload(payload json.RawMessage, namespace string, name string) (json.RawMessage, error) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(payload, &items); err != nil {
+		return nil, err
+	}
+
+	for _, item := range items {
+		var meta struct {
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+		}
+		if err := json.Unmarshal(item, &meta); err != nil {
+			return nil, err
+		}
+		if meta.Name == name && meta.Namespace == namespace {
+			return item, nil
+		}
+	}
+
+	return nil, ErrWorkloadNotFound
+}
+
+func WorkloadNotFoundMessage(scope string, namespace string, name string) string {
+	return fmt.Sprintf("%s not found: %s/%s", scope, namespace, name)
+}

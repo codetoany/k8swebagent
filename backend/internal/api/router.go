@@ -19,12 +19,14 @@ import (
 )
 
 type handler struct {
-	store        *store.SnapshotStore
-	clusterStore *store.ClusterStore
-	k8sManager   *k8s.Manager
-	nodesService *service.NodesService
-	podsService  *service.PodsService
-	cacheStatus  func() string
+	store             *store.SnapshotStore
+	clusterStore      *store.ClusterStore
+	k8sManager        *k8s.Manager
+	nodesService      *service.NodesService
+	podsService       *service.PodsService
+	workloadsService  *service.WorkloadsService
+	namespacesService *service.NamespacesService
+	cacheStatus       func() string
 }
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -46,12 +48,14 @@ func NewRouter(
 	cacheStatus func() string,
 ) http.Handler {
 	h := &handler{
-		store:        snapshotStore,
-		clusterStore: clusterStore,
-		k8sManager:   k8sManager,
-		nodesService: service.NewNodesService(snapshotStore, k8sManager),
-		podsService:  service.NewPodsService(snapshotStore, k8sManager),
-		cacheStatus:  cacheStatus,
+		store:             snapshotStore,
+		clusterStore:      clusterStore,
+		k8sManager:        k8sManager,
+		nodesService:      service.NewNodesService(snapshotStore, k8sManager),
+		podsService:       service.NewPodsService(snapshotStore, k8sManager),
+		workloadsService:  service.NewWorkloadsService(snapshotStore, k8sManager),
+		namespacesService: service.NewNamespacesService(snapshotStore, k8sManager),
+		cacheStatus:       cacheStatus,
 	}
 
 	router := chi.NewRouter()
@@ -97,14 +101,18 @@ func NewRouter(
 	})
 
 	router.Route("/api", func(r chi.Router) {
-		h.registerReadOnlyResource(r, "deployments")
-		h.registerReadOnlyResource(r, "statefulsets")
-		h.registerReadOnlyResource(r, "daemonsets")
-		h.registerReadOnlyResource(r, "cronjobs")
+		r.Get("/deployments", h.wrap(h.listWorkload("deployments")))
+		r.Get("/deployments/{namespace}/{name}", h.wrap(h.workloadDetail("deployments")))
+		r.Get("/statefulsets", h.wrap(h.listWorkload("statefulsets")))
+		r.Get("/statefulsets/{namespace}/{name}", h.wrap(h.workloadDetail("statefulsets")))
+		r.Get("/daemonsets", h.wrap(h.listWorkload("daemonsets")))
+		r.Get("/daemonsets/{namespace}/{name}", h.wrap(h.workloadDetail("daemonsets")))
+		r.Get("/cronjobs", h.wrap(h.listWorkload("cronjobs")))
+		r.Get("/cronjobs/{namespace}/{name}", h.wrap(h.workloadDetail("cronjobs")))
 	})
 
 	router.Route("/api/namespaces", func(r chi.Router) {
-		r.Get("/", h.wrap(h.list("namespaces", "list")))
+		r.Get("/", h.wrap(h.listNamespaces))
 		r.Get("/{name}", h.wrap(h.namespaceDetail))
 	})
 
@@ -310,6 +318,45 @@ func (h *handler) listPods(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) listNamespaces(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.namespacesService.ListPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
+func (h *handler) listWorkload(scope string) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		payload, err := h.workloadsService.ListPayload(r.Context(), scope)
+		if err != nil {
+			return err
+		}
+
+		writeRawJSON(w, http.StatusOK, payload)
+		return nil
+	}
+}
+
+func (h *handler) workloadDetail(scope string) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		payload, err := h.workloadsService.DetailPayload(r.Context(), scope, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrWorkloadNotFound) {
+				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+			}
+			return err
+		}
+
+		writeRawJSON(w, http.StatusOK, payload)
+		return nil
+	}
+}
+
 func (h *handler) list(scope string, key string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		payload, err := h.store.Get(r.Context(), scope, key)
@@ -414,15 +461,15 @@ func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
 
 func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error {
 	name := chi.URLParam(r, "name")
-	payload, err := h.findListItemByName(r.Context(), "namespaces", "list", name)
+	payload, err := h.namespacesService.DetailPayload(r.Context(), name)
 	if err != nil {
+		if errors.Is(err, service.ErrNamespaceNotFound) {
+			return newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
+		}
 		return err
 	}
 	if payload == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"message": fmt.Sprintf("Namespace not found: %s", name),
-		})
-		return nil
+		return newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
 	}
 
 	writeRawJSON(w, http.StatusOK, payload)

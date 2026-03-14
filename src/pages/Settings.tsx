@@ -787,66 +787,6 @@
                             </select>
                           </div>
 
-                          {clusterConfig.mode === 'token' && (
-                            <>
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  访问令牌
-                                </label>
-                                <textarea
-                                  value={clusterConfig.token}
-                                  onChange={(e) => updateClusterConfig({ token: e.target.value })}
-                                  placeholder={clusterConfig.hasToken ? '已配置 token，留空则保持不变' : '请输入 ServiceAccount token'}
-                                  rows={4}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  CA 证书
-                                </label>
-                                <textarea
-                                  value={clusterConfig.caData}
-                                  onChange={(e) => updateClusterConfig({ caData: e.target.value })}
-                                  placeholder="可填写 certificate-authority-data，留空则保持当前值"
-                                  rows={4}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-                            </>
-                          )}
-
-                          {clusterConfig.mode === 'kubeconfig' && (
-                            <>
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  KubeConfig 路径
-                                </label>
-                                <input
-                                  type="text"
-                                  value={clusterConfig.kubeconfigPath}
-                                  onChange={(e) => updateClusterConfig({ kubeconfigPath: e.target.value })}
-                                  placeholder={clusterConfig.hasKubeconfig ? '已配置路径，留空则保持不变' : '例如：/root/.kube/config'}
-                                  className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  KubeConfig 内容
-                                </label>
-                                <textarea
-                                  value={clusterConfig.kubeconfig}
-                                  onChange={(e) => updateClusterConfig({ kubeconfig: e.target.value })}
-                                  placeholder="也可以直接粘贴 kubeconfig 内容"
-                                  rows={6}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-                            </>
-                          )}
-
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                               自动刷新间隔 (秒)
@@ -865,23 +805,6 @@
                             </select>
                           </div>
 
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              跳过 TLS 校验
-                            </label>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" checked={clusterConfig.insecureSkipTLSVerify} onChange={(e) => updateClusterConfig({ insecureSkipTLSVerify: e.target.checked })} className="sr-only peer" />
-                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                            </label>
-                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                              仅测试环境建议开启，生产环境请优先提供 CA 证书。
-                            </p>
-                          </div>
-
-                          <div className={`p-3 rounded-lg border text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                            默认集群会作为当前后端的数据来源。保存后可点击“测试连接”立即验证。
-                          </div>
                         </>
                       )}
 
@@ -1074,19 +997,78 @@
                             </label>
                             <select
                               value={clusterConfig.mode}
-                              onChange={(e) => updateClusterConfig({ mode: (e.target.value === 'service-account' ? 'in-cluster' : e.target.value) as ClusterMode })}
+                              onChange={(e) => updateClusterConfig({ mode: e.target.value as ClusterMode })}
                               className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
                             >
-                              <option value="service-account">服务账户</option>
                               <option value="token">令牌</option>
                               <option value="kubeconfig">KubeConfig</option>
-                              <option value="in-cluster">In Cluster</option>
+                              <option value="in-cluster">服务账户（集群内）</option>
                             </select>
                           </div>
 
+                          {clusterConfig.mode === 'token' && (
+                            <>
+                              <div>
+                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  访问令牌
+                                </label>
+                                <textarea
+                                  value={clusterConfig.token}
+                                  onChange={(e) => updateClusterConfig({ token: e.target.value })}
+                                  placeholder={clusterConfig.hasToken ? '已配置 token，留空则保持不变' : '请输入 ServiceAccount token'}
+                                  rows={4}
+                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                                />
+                              </div>
+
+                              <div>
+                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  CA 证书
+                                </label>
+                                <textarea
+                                  value={clusterConfig.caData}
+                                  onChange={(e) => updateClusterConfig({ caData: e.target.value })}
+                                  placeholder="可填写 certificate-authority-data，留空则保持当前值"
+                                  rows={4}
+                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {clusterConfig.mode === 'kubeconfig' && (
+                            <>
+                              <div>
+                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  KubeConfig 路径
+                                </label>
+                                <input
+                                  type="text"
+                                  value={clusterConfig.kubeconfigPath}
+                                  onChange={(e) => updateClusterConfig({ kubeconfigPath: e.target.value })}
+                                  placeholder={clusterConfig.hasKubeconfig ? '已配置路径，留空则保持不变' : '例如：/root/.kube/config'}
+                                  className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                                />
+                              </div>
+
+                              <div>
+                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  KubeConfig 内容
+                                </label>
+                                <textarea
+                                  value={clusterConfig.kubeconfig}
+                                  onChange={(e) => updateClusterConfig({ kubeconfig: e.target.value })}
+                                  placeholder="也可以直接粘贴 kubeconfig 内容"
+                                  rows={6}
+                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                                />
+                              </div>
+                            </>
+                          )}
+
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              调试模式
+                              启用集群
                             </label>
                             <label className="relative inline-flex items-center cursor-pointer">
                               <input type="checkbox" checked={clusterConfig.isEnabled} onChange={(e) => updateClusterConfig({ isEnabled: e.target.checked })} className="sr-only peer" />
@@ -1094,8 +1076,26 @@
                               <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
                             </label>
                             <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                              仅管理员可启用
+                              关闭后将保留配置，但不会作为默认数据源使用。
                             </p>
+                          </div>
+
+                          <div>
+                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                              跳过 TLS 校验
+                            </label>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" checked={clusterConfig.insecureSkipTLSVerify} onChange={(e) => updateClusterConfig({ insecureSkipTLSVerify: e.target.checked })} className="sr-only peer" />
+                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
+                            </label>
+                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                              仅测试环境建议开启，生产环境请优先提供 CA 证书。
+                            </p>
+                          </div>
+
+                          <div className={`p-3 rounded-lg border text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                            默认集群会作为当前后端的数据来源。保存后可点击“测试连接”立即验证。
                           </div>
                         </>
                       )}
@@ -1396,7 +1396,7 @@
                               }`}
                             >
                               <Save size={16} />
-                              <span>保存设置</span>
+                              <span>{activeTab === 'advanced' ? '保存集群配置' : '保存设置'}</span>
                             </button>
                             <button 
                               onClick={handleCancelSettings}

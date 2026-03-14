@@ -23,6 +23,7 @@ type handler struct {
 	clusterStore *store.ClusterStore
 	k8sManager   *k8s.Manager
 	nodesService *service.NodesService
+	podsService  *service.PodsService
 	cacheStatus  func() string
 }
 
@@ -49,6 +50,7 @@ func NewRouter(
 		clusterStore: clusterStore,
 		k8sManager:   k8sManager,
 		nodesService: service.NewNodesService(snapshotStore, k8sManager),
+		podsService:  service.NewPodsService(snapshotStore, k8sManager),
 		cacheStatus:  cacheStatus,
 	}
 
@@ -88,7 +90,7 @@ func NewRouter(
 	})
 
 	router.Route("/api/pods", func(r chi.Router) {
-		r.Get("/", h.wrap(h.list("pods", "list")))
+		r.Get("/", h.wrap(h.listPods))
 		r.Get("/{namespace}/{name}/logs", h.wrap(h.podLogs))
 		r.Get("/{namespace}/{name}/metrics", h.wrap(h.podMetrics))
 		r.Get("/{namespace}/{name}", h.wrap(h.podDetail))
@@ -298,6 +300,16 @@ func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) listPods(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.podsService.ListPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
 func (h *handler) list(scope string, key string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		payload, err := h.store.Get(r.Context(), scope, key)
@@ -351,30 +363,49 @@ func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
 func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	entryKey := fmt.Sprintf("%s/%s", namespace, name)
-	return h.mapEntry(w, r, "pods", "logs", entryKey, "", true)
+	payload, err := h.podsService.LogsPayload(r.Context(), namespace, name)
+	if err != nil {
+		if errors.Is(err, service.ErrPodNotFound) {
+			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+		}
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
 }
 
 func (h *handler) podMetrics(w http.ResponseWriter, r *http.Request) error {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	entryKey := fmt.Sprintf("%s/%s", namespace, name)
-	message := fmt.Sprintf("Pod metrics not found for %s", entryKey)
-	return h.mapEntry(w, r, "pods", "metrics", entryKey, message, false)
+	payload, err := h.podsService.MetricsPayload(r.Context(), namespace, name)
+	if err != nil {
+		if errors.Is(err, service.ErrPodNotFound) {
+			return newHTTPError(http.StatusNotFound, fmt.Sprintf("Pod metrics not found for %s/%s", namespace, name))
+		}
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
 }
 
 func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	payload, err := h.findListItemByNamespaceAndName(r.Context(), "pods", "list", namespace, name)
+	listPayload, err := h.podsService.ListPayload(r.Context())
 	if err != nil {
 		return err
 	}
+	payload, err := service.FindPodPayload(listPayload, namespace, name)
+	if err != nil {
+		if errors.Is(err, service.ErrPodNotFound) {
+			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+		}
+		return err
+	}
 	if payload == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"message": fmt.Sprintf("Pod not found: %s/%s", namespace, name),
-		})
-		return nil
+		return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
 	}
 
 	writeRawJSON(w, http.StatusOK, payload)

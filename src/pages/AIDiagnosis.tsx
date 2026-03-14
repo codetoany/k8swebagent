@@ -392,7 +392,11 @@ export default function AIDiagnosis() {
   };
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div
+      className={`min-h-screen overflow-x-hidden transition-colors duration-300 lg:h-screen lg:overflow-hidden ${
+        isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'
+      }`}
+    >
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
@@ -459,7 +463,7 @@ export default function AIDiagnosis() {
         </div>
       </div>
 
-      <div className="lg:ml-64 flex min-h-screen flex-col">
+      <div className="lg:ml-64 flex min-h-screen flex-col lg:h-screen">
         <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
           <div className="flex items-center justify-between gap-3 px-4 py-2 md:px-6 md:py-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -530,7 +534,7 @@ export default function AIDiagnosis() {
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col gap-6 p-4 md:p-6 xl:min-h-0">
+        <main className="flex flex-1 flex-col gap-6 overflow-hidden p-4 md:p-6 xl:min-h-0">
           <section className="hidden">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
@@ -578,7 +582,9 @@ export default function AIDiagnosis() {
           </section>
 
           <section
-            className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'} xl:min-h-0 xl:flex-1`}
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-sm ${
+              isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
+            }`}
           >
             <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               <button
@@ -614,12 +620,12 @@ export default function AIDiagnosis() {
             </div>
 
             {loading ? (
-              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[2fr,1fr]">
+              <div className="grid min-h-0 flex-1 gap-6 p-5 xl:h-full xl:grid-cols-[2fr,1fr]">
                 <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
               </div>
             ) : activeTab === 'chat' ? (
-              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[2fr,1fr] xl:items-stretch">
+              <div className="grid min-h-0 flex-1 gap-6 p-5 xl:h-full xl:grid-cols-[minmax(0,2fr)_360px] xl:items-stretch">
                 <div
                   className={`flex min-h-[540px] flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'} xl:min-h-0 xl:h-full`}
                 >
@@ -714,7 +720,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
 
-                <div className="space-y-4 xl:min-h-0 xl:overflow-y-auto">
+                <div className="min-h-0 space-y-4 xl:overflow-y-auto">
                   <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">优先关注节点</div>
@@ -807,8 +813,8 @@ export default function AIDiagnosis() {
                 </div>
               </div>
             ) : (
-              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[1.3fr,1fr]">
-                <div className="space-y-4 xl:min-h-0 xl:overflow-y-auto">
+              <div className="grid min-h-0 flex-1 gap-6 p-5 xl:h-full xl:grid-cols-[1.3fr,1fr]">
+                <div className="min-h-0 space-y-4 xl:overflow-y-auto">
                   {conversations.length === 0 ? (
                     <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
                       还没有 AI 诊断历史。发起第一条诊断问题后，会话会自动保存在这里。

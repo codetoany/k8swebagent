@@ -191,6 +191,7 @@ export default function AIDiagnosis() {
   const [messages, setMessages] = useState<AIConversationMessage[]>(createWelcomeMessage('默认诊断上下文'));
   const [clusterStatus, setClusterStatus] = useState<AIClusterStatus | null>(null);
   const [inputMessage, setInputMessage] = useState('');
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const isDark = theme === 'dark';
@@ -203,7 +204,15 @@ export default function AIDiagnosis() {
   );
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages, sending]);
 
   useEffect(() => {
@@ -485,7 +494,7 @@ export default function AIDiagnosis() {
           </div>
         </header>
 
-        <main className="space-y-6 p-4 md:p-6">
+        <main className="flex flex-col gap-6 p-4 md:p-6 xl:h-[calc(100vh-5.5rem)] xl:overflow-hidden">
           <section className={`rounded-2xl border p-5 shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
@@ -570,7 +579,9 @@ export default function AIDiagnosis() {
             </div>
           </section>
 
-          <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+          <section
+            className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'} xl:min-h-0 xl:flex-1`}
+          >
             <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               <button
                 onClick={() => setActiveTab('chat')}
@@ -605,14 +616,16 @@ export default function AIDiagnosis() {
             </div>
 
             {loading ? (
-              <div className="grid gap-6 p-5 xl:grid-cols-[2fr,1fr]">
+              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[2fr,1fr]">
                 <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
               </div>
             ) : activeTab === 'chat' ? (
-              <div className="grid gap-6 p-5 xl:grid-cols-[2fr,1fr]">
-                <div className={`flex min-h-[620px] flex-col rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-                  <div className={`flex items-center justify-between border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[2fr,1fr] xl:items-stretch">
+                <div
+                  className={`flex min-h-[540px] flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'} xl:min-h-0 xl:h-full`}
+                >
+                  <div className={`shrink-0 flex items-center justify-between border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                     <div>
                       <div className="font-semibold">诊断对话</div>
                       <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -629,7 +642,7 @@ export default function AIDiagnosis() {
                     )}
                   </div>
 
-                  <div className="flex-1 space-y-5 overflow-y-auto p-4">
+                  <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4">
                     {messages.map((message) => (
                       <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[85%] ${message.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
@@ -664,7 +677,7 @@ export default function AIDiagnosis() {
                     <div ref={messagesEndRef}></div>
                   </div>
 
-                  <div className={`border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className={`shrink-0 border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                     <div className="relative">
                       <textarea
                         value={inputMessage}
@@ -703,7 +716,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 xl:min-h-0 xl:overflow-y-auto">
                   <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">优先关注节点</div>
@@ -796,8 +809,8 @@ export default function AIDiagnosis() {
                 </div>
               </div>
             ) : (
-              <div className="grid gap-6 p-5 xl:grid-cols-[1.3fr,1fr]">
-                <div className="space-y-4">
+              <div className="grid gap-6 p-5 xl:h-full xl:grid-cols-[1.3fr,1fr]">
+                <div className="space-y-4 xl:min-h-0 xl:overflow-y-auto">
                   {conversations.length === 0 ? (
                     <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
                       还没有 AI 诊断历史。发起第一条诊断问题后，会话会自动保存在这里。
@@ -857,7 +870,7 @@ export default function AIDiagnosis() {
                   )}
                 </div>
 
-                <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'} xl:min-h-0 xl:overflow-y-auto`}>
                   <div className="flex items-center justify-between">
                     <div className="font-semibold">历史说明</div>
                     <History size={16} className="text-blue-500" />

@@ -66,6 +66,14 @@ const restartEndpoints: Record<string, string> = {
   daemonset: workloadsAPI.restartDaemonSet,
 };
 
+const pauseEndpoints: Record<string, string> = {
+  deployment: workloadsAPI.pauseDeployment,
+};
+
+const resumeEndpoints: Record<string, string> = {
+  deployment: workloadsAPI.resumeDeployment,
+};
+
 const deleteEndpoints: Record<string, string> = {
   deployment: workloadsAPI.deleteDeployment,
   statefulset: workloadsAPI.deleteStatefulSet,
@@ -144,6 +152,8 @@ const Workloads = () => {
     Object.prototype.hasOwnProperty.call(scaleEndpoints, type);
   const supportsRestart = (type: string) =>
     Object.prototype.hasOwnProperty.call(restartEndpoints, type);
+  const supportsPauseToggle = (type: string) =>
+    Object.prototype.hasOwnProperty.call(pauseEndpoints, type);
   const supportsDelete = (type: string) =>
     Object.prototype.hasOwnProperty.call(deleteEndpoints, type);
 
@@ -393,6 +403,41 @@ const Workloads = () => {
     }
   };
 
+  const handleTogglePause = async (workload: any) => {
+    const paused = workload?.paused === true;
+    const endpointTemplate = paused ? resumeEndpoints[workload.type] : pauseEndpoints[workload.type];
+    if (!endpointTemplate) {
+      toast.error("Pause or resume is not supported for this workload type");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      paused
+        ? `Confirm resume for ${workload.name}?`
+        : `Confirm pause for ${workload.name}?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${workload.type}:${workload.namespace}:${workload.name}:${paused ? "resume" : "pause"}`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(endpointTemplate, {
+        namespace: workload.namespace,
+        name: workload.name,
+      });
+      const updated = await apiClient.post<any>(endpoint, undefined, {
+        params: clusterParams,
+      });
+      syncWorkloadItem(updated, workload.type);
+      toast.success(paused ? `${workload.name} resumed` : `${workload.name} paused`);
+    } finally {
+      setActionLoadingKey("");
+    }
+  };
+
   const filteredAndSortedWorkloads = workloads
     .filter((workload) => {
       const matchesSearch =
@@ -502,12 +547,15 @@ const Workloads = () => {
 
     const scaleSupported = supportsScaling(selectedWorkload.type);
     const restartSupported = supportsRestart(selectedWorkload.type);
+    const pauseSupported = supportsPauseToggle(selectedWorkload.type);
     const deleteSupported = supportsDelete(selectedWorkload.type);
     const scaleActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:scale`;
     const restartActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:restart`;
+    const pauseActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:${selectedWorkload.paused === true ? "resume" : "pause"}`;
     const deleteActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:delete`;
     const scaling = actionLoadingKey === scaleActionKey;
     const restarting = actionLoadingKey === restartActionKey;
+    const pausing = actionLoadingKey === pauseActionKey;
     const deleting = actionLoadingKey === deleteActionKey;
 
     return (
@@ -696,6 +744,25 @@ const Workloads = () => {
                     </button>
                     <button
                       className={`px-3 py-1.5 rounded text-xs font-medium ${
+                        pauseSupported
+                          ? `${theme === "dark" ? "bg-amber-600 hover:bg-amber-700" : "bg-amber-500 hover:bg-amber-600"} text-white`
+                          : theme === "dark"
+                            ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                            : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      }`}
+                      onClick={() => void handleTogglePause(selectedWorkload)}
+                      disabled={!pauseSupported || scaling || restarting || pausing || deleting}
+                    >
+                      {pausing
+                        ? selectedWorkload.paused === true
+                          ? "Resuming..."
+                          : "Pausing..."
+                        : selectedWorkload.paused === true
+                          ? "Resume"
+                          : "Pause"}
+                    </button>
+                    <button
+                      className={`px-3 py-1.5 rounded text-xs font-medium ${
                         theme === "dark"
                           ? "bg-gray-700 text-gray-400 cursor-not-allowed"
                           : "bg-gray-200 text-gray-500 cursor-not-allowed"
@@ -713,7 +780,7 @@ const Workloads = () => {
                             : "bg-gray-200 text-gray-500 cursor-not-allowed"
                       }`}
                       onClick={() => void handleDeleteWorkload(selectedWorkload)}
-                      disabled={!deleteSupported || scaling || restarting || deleting}
+                      disabled={!deleteSupported || scaling || restarting || pausing || deleting}
                     >
                       编辑
                     </button>

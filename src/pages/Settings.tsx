@@ -223,6 +223,14 @@
           return '节点禁止调度';
         case 'node.uncordon':
           return '节点恢复调度';
+        case 'workload.pause':
+          return 'Pause workload';
+        case 'workload.resume':
+          return 'Resume workload';
+        case 'node.maintenance.enable':
+          return 'Enable maintenance taint';
+        case 'node.maintenance.disable':
+          return 'Clear maintenance taint';
         default:
           return action;
       }
@@ -260,6 +268,13 @@
       { value: 'node.cordon', label: '节点禁止调度' },
       { value: 'node.uncordon', label: '节点恢复调度' },
     ];
+
+    auditActionOptions.push(
+      { value: 'workload.pause', label: 'Pause workload' },
+      { value: 'workload.resume', label: 'Resume workload' },
+      { value: 'node.maintenance.enable', label: 'Enable maintenance taint' },
+      { value: 'node.maintenance.disable', label: 'Clear maintenance taint' },
+    );
 
     const auditResourceTypeOptions = [
       { value: '', label: '全部资源' },

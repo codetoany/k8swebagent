@@ -25,6 +25,12 @@ var (
 	ErrNodeLiveClusterNeeded = errors.New("node action requires a live cluster")
 )
 
+const (
+	maintenanceTaintKey    = "ops.k8s-agent.io/maintenance"
+	maintenanceTaintValue  = "true"
+	maintenanceTaintEffect = corev1.TaintEffectNoSchedule
+)
+
 type NodesService struct {
 	snapshotStore *store.SnapshotStore
 	k8sManager    *k8s.Manager
@@ -143,6 +149,70 @@ func (s *NodesService) SetSchedulable(
 		if err != nil {
 			return NodeListItem{}, err
 		}
+	}
+
+	pods, err := listPodsForNode(ctx, clientset, name)
+	if err != nil {
+		return NodeListItem{}, err
+	}
+
+	return mapNode(*node, pods), nil
+}
+
+func (s *NodesService) SetMaintenanceTaint(
+	ctx context.Context,
+	clusterID string,
+	name string,
+	enabled bool,
+) (NodeListItem, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return NodeListItem{}, ErrNodeLiveClusterNeeded
+	case err != nil:
+		return NodeListItem{}, err
+	}
+
+	node, err := clientset.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return NodeListItem{}, ErrNodeNotFound
+	}
+	if err != nil {
+		return NodeListItem{}, err
+	}
+
+	updatedTaints := make([]corev1.Taint, 0, len(node.Spec.Taints)+1)
+	found := false
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == maintenanceTaintKey && taint.Effect == maintenanceTaintEffect {
+			found = true
+			if enabled {
+				updatedTaints = append(updatedTaints, corev1.Taint{
+					Key:    maintenanceTaintKey,
+					Value:  maintenanceTaintValue,
+					Effect: maintenanceTaintEffect,
+				})
+			}
+			continue
+		}
+		updatedTaints = append(updatedTaints, taint)
+	}
+
+	if enabled && !found {
+		updatedTaints = append(updatedTaints, corev1.Taint{
+			Key:    maintenanceTaintKey,
+			Value:  maintenanceTaintValue,
+			Effect: maintenanceTaintEffect,
+		})
+	}
+
+	node.Spec.Taints = updatedTaints
+	node, err = clientset.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+	if k8serrors.IsNotFound(err) {
+		return NodeListItem{}, ErrNodeNotFound
+	}
+	if err != nil {
+		return NodeListItem{}, err
 	}
 
 	pods, err := listPodsForNode(ctx, clientset, name)

@@ -33,6 +33,7 @@ type WorkloadItem struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
 	Namespace    string            `json:"namespace"`
+	Paused       bool              `json:"paused,omitempty"`
 	Ready        int32             `json:"ready"`
 	Desired      int32             `json:"desired"`
 	Available    int32             `json:"available"`
@@ -221,6 +222,49 @@ func (s *WorkloadsService) Restart(
 	}
 }
 
+func (s *WorkloadsService) SetPaused(
+	ctx context.Context,
+	clusterID string,
+	scope string,
+	namespace string,
+	name string,
+	paused bool,
+) (WorkloadItem, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return WorkloadItem{}, ErrWorkloadLiveClusterNeeded
+	case err != nil:
+		return WorkloadItem{}, err
+	}
+
+	switch scope {
+	case "deployments":
+		item, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		if item.Spec.Paused != paused {
+			item.Spec.Paused = paused
+			item, err = clientset.AppsV1().Deployments(namespace).Update(ctx, item, metav1.UpdateOptions{})
+			if k8serrors.IsNotFound(err) {
+				return WorkloadItem{}, ErrWorkloadNotFound
+			}
+			if err != nil {
+				return WorkloadItem{}, err
+			}
+		}
+
+		return mapDeployment(*item), nil
+	default:
+		return WorkloadItem{}, ErrWorkloadActionUnsupported
+	}
+}
+
 func (s *WorkloadsService) Delete(
 	ctx context.Context,
 	clusterID string,
@@ -366,6 +410,7 @@ func mapDeployment(item appsv1.Deployment) WorkloadItem {
 		ID:        fmt.Sprintf("%s-deployment", item.Name),
 		Name:      item.Name,
 		Namespace: item.Namespace,
+		Paused:    item.Spec.Paused,
 		Ready:     item.Status.ReadyReplicas,
 		Desired:   desired,
 		Available: item.Status.AvailableReplicas,

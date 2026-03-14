@@ -17,6 +17,8 @@ export const nodesAPI = {
   getNodeMetrics: "/nodes/:name/metrics",
   cordonNode: "/nodes/:name/cordon",
   uncordonNode: "/nodes/:name/uncordon",
+  enableMaintenance: "/nodes/:name/maintenance/enable",
+  disableMaintenance: "/nodes/:name/maintenance/disable",
 };
 
 export const podsAPI = {
@@ -33,6 +35,8 @@ export const workloadsAPI = {
   getDeploymentDetail: "/deployments/:namespace/:name",
   scaleDeployment: "/deployments/:namespace/:name/scale",
   restartDeployment: "/deployments/:namespace/:name/restart",
+  pauseDeployment: "/deployments/:namespace/:name/pause",
+  resumeDeployment: "/deployments/:namespace/:name/resume",
   deleteDeployment: "/deployments/:namespace/:name",
   listStatefulSets: "/statefulsets",
   getStatefulSetDetail: "/statefulsets/:namespace/:name",

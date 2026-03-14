@@ -104,6 +104,8 @@ func NewRouter(
 		r.Get("/", h.wrap(h.listNodes))
 		r.Post("/{name}/cordon", h.wrap(h.cordonNode))
 		r.Post("/{name}/uncordon", h.wrap(h.uncordonNode))
+		r.Post("/{name}/maintenance/enable", h.wrap(h.enableNodeMaintenance))
+		r.Post("/{name}/maintenance/disable", h.wrap(h.disableNodeMaintenance))
 		r.Get("/{name}/metrics", h.wrap(h.nodesMetrics))
 		r.Get("/{name}", h.wrap(h.nodeDetail))
 	})
@@ -122,6 +124,8 @@ func NewRouter(
 		r.Get("/deployments/{namespace}/{name}", h.wrap(h.workloadDetail("deployments")))
 		r.Post("/deployments/{namespace}/{name}/scale", h.wrap(h.scaleWorkload("deployments")))
 		r.Post("/deployments/{namespace}/{name}/restart", h.wrap(h.restartWorkload("deployments")))
+		r.Post("/deployments/{namespace}/{name}/pause", h.wrap(h.setWorkloadPaused("deployments", true)))
+		r.Post("/deployments/{namespace}/{name}/resume", h.wrap(h.setWorkloadPaused("deployments", false)))
 		r.Delete("/deployments/{namespace}/{name}", h.wrap(h.deleteWorkload("deployments")))
 		r.Get("/statefulsets", h.wrap(h.listWorkload("statefulsets")))
 		r.Get("/statefulsets/{namespace}/{name}", h.wrap(h.workloadDetail("statefulsets")))
@@ -673,6 +677,49 @@ func (h *handler) restartWorkload(scope string) routeHandler {
 	}
 }
 
+func (h *handler) setWorkloadPaused(scope string, paused bool) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		clusterID := requestedClusterID(r)
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		item, err := h.workloadsService.SetPaused(r.Context(), clusterID, scope, namespace, name, paused)
+		if err != nil {
+			h.recordAudit(r.Context(), r, store.AuditLogInput{
+				Action:       map[bool]string{true: "workload.pause", false: "workload.resume"}[paused],
+				ResourceType: scope,
+				ResourceName: name,
+				Namespace:    namespace,
+				ClusterID:    clusterID,
+				Status:       store.AuditStatusFailed,
+				Message:      errorMessageForAudit(err),
+			})
+			switch {
+			case errors.Is(err, service.ErrWorkloadNotFound):
+				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+			case errors.Is(err, service.ErrWorkloadActionUnsupported):
+				return newHTTPError(http.StatusBadRequest, "current workload type does not support pause or resume")
+			case errors.Is(err, service.ErrWorkloadLiveClusterNeeded):
+				return newHTTPError(http.StatusBadRequest, "current cluster is not connected to a live Kubernetes cluster")
+			default:
+				return err
+			}
+		}
+
+		h.invalidateReadonlyCache(r.Context(), clusterID)
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       map[bool]string{true: "workload.pause", false: "workload.resume"}[paused],
+			ResourceType: scope,
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusSuccess,
+			Message:      map[bool]string{true: "Workload paused", false: "Workload resumed"}[paused],
+		})
+		writeJSON(w, http.StatusOK, item)
+		return nil
+	}
+}
+
 func (h *handler) deleteWorkload(scope string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		clusterID := requestedClusterID(r)
@@ -780,6 +827,14 @@ func (h *handler) uncordonNode(w http.ResponseWriter, r *http.Request) error {
 	return h.setNodeSchedulable(w, r, true)
 }
 
+func (h *handler) enableNodeMaintenance(w http.ResponseWriter, r *http.Request) error {
+	return h.setNodeMaintenance(w, r, true)
+}
+
+func (h *handler) disableNodeMaintenance(w http.ResponseWriter, r *http.Request) error {
+	return h.setNodeMaintenance(w, r, false)
+}
+
 func (h *handler) setNodeSchedulable(w http.ResponseWriter, r *http.Request, schedulable bool) error {
 	clusterID := requestedClusterID(r)
 	name := chi.URLParam(r, "name")
@@ -811,6 +866,42 @@ func (h *handler) setNodeSchedulable(w http.ResponseWriter, r *http.Request, sch
 		ClusterID:    clusterID,
 		Status:       store.AuditStatusSuccess,
 		Message:      map[bool]string{true: "Scheduling restored", false: "Scheduling disabled"}[schedulable],
+	})
+	writeJSON(w, http.StatusOK, item)
+	return nil
+}
+
+func (h *handler) setNodeMaintenance(w http.ResponseWriter, r *http.Request, enabled bool) error {
+	clusterID := requestedClusterID(r)
+	name := chi.URLParam(r, "name")
+	item, err := h.nodesService.SetMaintenanceTaint(r.Context(), clusterID, name, enabled)
+	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       map[bool]string{true: "node.maintenance.enable", false: "node.maintenance.disable"}[enabled],
+			ResourceType: "node",
+			ResourceName: name,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
+		switch {
+		case errors.Is(err, service.ErrNodeNotFound):
+			return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+		case errors.Is(err, service.ErrNodeLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "current cluster is not connected to a live Kubernetes cluster")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       map[bool]string{true: "node.maintenance.enable", false: "node.maintenance.disable"}[enabled],
+		ResourceType: "node",
+		ResourceName: name,
+		ClusterID:    clusterID,
+		Status:       store.AuditStatusSuccess,
+		Message:      map[bool]string{true: "Maintenance taint enabled", false: "Maintenance taint cleared"}[enabled],
 	})
 	writeJSON(w, http.StatusOK, item)
 	return nil

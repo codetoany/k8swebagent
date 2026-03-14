@@ -130,6 +130,12 @@ const Nodes = () => {
   };
 
   const isNodeSchedulable = (node: any) => node?.schedulable !== false;
+  const hasMaintenanceTaint = (node: any) =>
+    Array.isArray(node?.taints) &&
+    node.taints.some(
+      (taint: any) =>
+        taint?.key === 'ops.k8s-agent.io/maintenance' && taint?.effect === 'NoSchedule',
+    );
 
   const syncNodeState = (updatedNode: any) => {
     setNodes((current) =>
@@ -160,6 +166,37 @@ const Nodes = () => {
       const updatedNode = await apiClient.post<any>(endpoint, undefined, { params: clusterParams });
       syncNodeState(updatedNode);
       toast.success(currentlySchedulable ? `节点 ${node.name} 已设为不可调度` : `节点 ${node.name} 已恢复调度`);
+    } finally {
+      setActionLoadingKey('');
+    }
+  };
+
+  const handleToggleMaintenance = async (node: any) => {
+    const enabling = !hasMaintenanceTaint(node);
+    const confirmed = window.confirm(
+      enabling
+        ? `Confirm enable maintenance taint on node "${node.name}"?`
+        : `Confirm clear maintenance taint on node "${node.name}"?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${node.name}:${enabling ? 'maintenance-enable' : 'maintenance-disable'}`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(
+        enabling ? nodesAPI.enableMaintenance : nodesAPI.disableMaintenance,
+        { name: node.name },
+      );
+      const updatedNode = await apiClient.post<any>(endpoint, undefined, { params: clusterParams });
+      syncNodeState(updatedNode);
+      toast.success(
+        enabling
+          ? `Maintenance taint enabled for ${node.name}`
+          : `Maintenance taint cleared for ${node.name}`,
+      );
     } finally {
       setActionLoadingKey('');
     }
@@ -457,6 +494,44 @@ const Nodes = () => {
               </div>
             </div>
             
+            <div className="mt-6 mb-6">
+              <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Maintenance</h4>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  {hasMaintenanceTaint(selectedNode) ? (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
+                      <AlertCircle size={12} className="mr-1" />
+                      Maintenance taint enabled
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+                      <CheckCircle size={12} className="mr-1" />
+                      No maintenance taint
+                    </span>
+                  )}
+                </div>
+                <button
+                  className={`px-4 py-2 rounded-lg text-sm ${
+                    hasMaintenanceTaint(selectedNode)
+                      ? theme === 'dark'
+                        ? 'bg-sky-600 hover:bg-sky-700 text-white'
+                        : 'bg-sky-500 hover:bg-sky-600 text-white'
+                      : theme === 'dark'
+                        ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                        : 'bg-orange-500 hover:bg-orange-600 text-white'
+                  }`}
+                  onClick={() => void handleToggleMaintenance(selectedNode)}
+                  disabled={actionLoadingKey === `${selectedNode.name}:${hasMaintenanceTaint(selectedNode) ? 'maintenance-disable' : 'maintenance-enable'}`}
+                >
+                  {actionLoadingKey === `${selectedNode.name}:${hasMaintenanceTaint(selectedNode) ? 'maintenance-disable' : 'maintenance-enable'}`
+                    ? 'Processing...'
+                    : hasMaintenanceTaint(selectedNode)
+                      ? 'Clear maintenance taint'
+                      : 'Enable maintenance taint'}
+                </button>
+              </div>
+            </div>
+
             <div className="mt-6">
               <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>标签</h4>
               <div className="flex flex-wrap gap-2">
@@ -803,6 +878,19 @@ const Nodes = () => {
                                 title={isNodeSchedulable(node) ? '设为不可调度' : '恢复调度'}
                               >
                                 {isNodeSchedulable(node) ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
+                              </button>
+                              <button 
+                                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} ${
+                                  hasMaintenanceTaint(node) ? 'text-sky-500' : 'text-orange-500'
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleToggleMaintenance(node);
+                                }}
+                                disabled={actionLoadingKey === `${node.name}:${hasMaintenanceTaint(node) ? 'maintenance-disable' : 'maintenance-enable'}`}
+                                title={hasMaintenanceTaint(node) ? '清除维护污点' : '启用维护污点'}
+                              >
+                                <AlertCircle size={16} />
                               </button>
                             </div>
                           </td>

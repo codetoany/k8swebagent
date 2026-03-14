@@ -8,6 +8,7 @@ import { useClusterContext } from '@/contexts/clusterContext';
 import { useThemeContext } from '@/contexts/themeContext';
 import ClusterSelector from '@/components/ClusterSelector';
 import { dashboardAPI } from '@/lib/api';
+import { ApiError } from '@/lib/apiClient';
 import apiClient from '@/lib/apiClient';
 
 const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#6b7280'];
@@ -33,6 +34,7 @@ const Dashboard = () => {
   const [resourceUsageData, setResourceUsageData] = useState<ResourceUsagePoint[]>([]);
   const [namespaceChartData, setNamespaceChartData] = useState<NamespaceDistribution[]>([]);
   const [recentEvents, setRecentEvents] = useState<DashboardEvent[]>([]);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: 0.5, staggerChildren: 0.1 } } };
   const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1, transition: { duration: 0.3 } } };
@@ -46,6 +48,7 @@ const Dashboard = () => {
     let active = true;
     const loadDashboard = async () => {
       setLoading(true);
+      setDashboardError(null);
       try {
         const [overviewData, namespaceDistribution, recentEventsData] = await Promise.all([
           apiClient.get<Partial<Overview>>(dashboardAPI.getClusterOverview, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
@@ -56,6 +59,13 @@ const Dashboard = () => {
         setOverview({ ...EMPTY_OVERVIEW, ...overviewData });
         setNamespaceChartData(Array.isArray(namespaceDistribution) ? namespaceDistribution : []);
         setRecentEvents(Array.isArray(recentEventsData) ? recentEventsData : []);
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof ApiError) {
+          setDashboardError(error.message);
+        } else {
+          setDashboardError('仪表盘数据加载失败，请稍后重试');
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -76,6 +86,13 @@ const Dashboard = () => {
         const resourceUsage = await apiClient.get<ResourceUsagePoint[]>(dashboardAPI.getResourceUsage, requestParams);
         if (!active) return;
         setResourceUsageData(Array.isArray(resourceUsage) ? resourceUsage : []);
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof ApiError) {
+          setDashboardError(error.message);
+        } else {
+          setDashboardError('资源图表加载失败，请稍后重试');
+        }
       } finally {
         if (active) setResourceUsageLoading(false);
       }
@@ -213,6 +230,18 @@ const Dashboard = () => {
                 <div><h2 className="text-lg font-semibold">当前资源集群</h2><p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{selectedCluster?.name || '未选择集群'}</p></div>
                 <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedCluster?.id || ''} loading={clustersLoading} onChange={setSelectedClusterId} className="w-full md:w-64" />
               </motion.div>
+
+              {dashboardError && (
+                <motion.div variants={itemVariants} className={`rounded-xl border px-4 py-3 ${theme === 'dark' ? 'border-red-900/40 bg-red-950/20 text-red-200' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">当前集群数据暂时不可用</p>
+                      <p className={`text-sm ${theme === 'dark' ? 'text-red-200/90' : 'text-red-600'}`}>{dashboardError}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
               <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {metricCards.map((card) => (

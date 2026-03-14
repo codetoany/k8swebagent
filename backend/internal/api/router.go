@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type handler struct {
@@ -150,11 +151,43 @@ func (h *handler) wrap(next routeHandler) http.HandlerFunc {
 				return
 			}
 
+			if status, message, ok := translateUpstreamError(err); ok {
+				log.Printf("request failed %s %s: %v", r.Method, r.URL.Path, err)
+				writeJSON(w, status, map[string]string{
+					"message": message,
+				})
+				return
+			}
+
 			log.Printf("request failed %s %s: %v", r.Method, r.URL.Path, err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"message": "Internal server error",
 			})
 		}
+	}
+}
+
+func translateUpstreamError(err error) (int, string, bool) {
+	if err == nil {
+		return 0, "", false
+	}
+
+	if k8serrors.IsUnauthorized(err) {
+		return http.StatusBadGateway, "集群认证失败，请更新集群 Token 或 kubeconfig", true
+	}
+	if k8serrors.IsForbidden(err) {
+		return http.StatusBadGateway, "集群账号权限不足，请检查 RBAC 授权", true
+	}
+
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "provide credentials"),
+		strings.Contains(lower, "unauthorized"):
+		return http.StatusBadGateway, "集群认证失败，请更新集群 Token 或 kubeconfig", true
+	case strings.Contains(lower, "forbidden"):
+		return http.StatusBadGateway, "集群账号权限不足，请检查 RBAC 授权", true
+	default:
+		return 0, "", false
 	}
 }
 

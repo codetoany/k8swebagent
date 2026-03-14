@@ -49,7 +49,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, clusterStore, k8sManager, redisCache.Status),
+		Handler:           api.NewRouter(snapshotStore, clusterStore, k8sManager, redisCache),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

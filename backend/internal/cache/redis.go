@@ -66,11 +66,23 @@ func (c *RedisCache) Get(ctx context.Context, key string) (json.RawMessage, bool
 }
 
 func (c *RedisCache) Set(ctx context.Context, key string, value json.RawMessage) error {
+	return c.SetWithTTL(ctx, key, value, 0)
+}
+
+func (c *RedisCache) SetWithTTL(ctx context.Context, key string, value json.RawMessage, ttl time.Duration) error {
 	if c.client == nil {
 		return nil
 	}
 
-	if err := c.client.Set(ctx, key, value, c.ttl).Err(); err != nil {
+	expiration := c.ttl
+	if ttl > 0 {
+		expiration = ttl
+	}
+	if expiration <= 0 {
+		expiration = time.Minute
+	}
+
+	if err := c.client.Set(ctx, key, []byte(value), expiration).Err(); err != nil {
 		return nil
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s-agent-backend/internal/cache"
 	"k8s-agent-backend/internal/k8s"
 	"k8s-agent-backend/internal/service"
 	"k8s-agent-backend/internal/store"
@@ -22,12 +23,12 @@ type handler struct {
 	store             *store.SnapshotStore
 	clusterStore      *store.ClusterStore
 	k8sManager        *k8s.Manager
+	redisCache        *cache.RedisCache
 	dashboardService  *service.DashboardService
 	nodesService      *service.NodesService
 	podsService       *service.PodsService
 	workloadsService  *service.WorkloadsService
 	namespacesService *service.NamespacesService
-	cacheStatus       func() string
 }
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -46,18 +47,18 @@ func NewRouter(
 	snapshotStore *store.SnapshotStore,
 	clusterStore *store.ClusterStore,
 	k8sManager *k8s.Manager,
-	cacheStatus func() string,
+	redisCache *cache.RedisCache,
 ) http.Handler {
 	h := &handler{
 		store:             snapshotStore,
 		clusterStore:      clusterStore,
 		k8sManager:        k8sManager,
+		redisCache:        redisCache,
 		dashboardService:  service.NewDashboardService(snapshotStore, k8sManager),
 		nodesService:      service.NewNodesService(snapshotStore, k8sManager),
 		podsService:       service.NewPodsService(snapshotStore, k8sManager),
 		workloadsService:  service.NewWorkloadsService(snapshotStore, k8sManager),
 		namespacesService: service.NewNamespacesService(snapshotStore, k8sManager),
-		cacheStatus:       cacheStatus,
 	}
 
 	router := chi.NewRouter()
@@ -159,8 +160,8 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	redisStatus := "disabled"
-	if h.cacheStatus != nil {
-		redisStatus = h.cacheStatus()
+	if h.redisCache != nil {
+		redisStatus = h.redisCache.Status()
 	}
 
 	k8sStatus, err := h.k8sManager.CheckDefaultCluster(ctx)
@@ -301,84 +302,52 @@ func (h *handler) snapshot(scope string, key string) routeHandler {
 }
 
 func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.nodesService.ListPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "nodes:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.nodesService.ListPayload(ctx)
+	})
 }
 
 func (h *handler) dashboardOverview(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.dashboardService.OverviewPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "dashboard:overview", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.dashboardService.OverviewPayload(ctx)
+	})
 }
 
 func (h *handler) dashboardResourceUsage(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.dashboardService.ResourceUsagePayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "dashboard:resource-usage", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.dashboardService.ResourceUsagePayload(ctx)
+	})
 }
 
 func (h *handler) dashboardNamespaceDistribution(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.dashboardService.NamespaceDistributionPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "dashboard:namespace-distribution", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.dashboardService.NamespaceDistributionPayload(ctx)
+	})
 }
 
 func (h *handler) dashboardRecentEvents(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.dashboardService.RecentEventsPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "dashboard:recent-events", readonlyEventsTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.dashboardService.RecentEventsPayload(ctx)
+	})
 }
 
 func (h *handler) listPods(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.podsService.ListPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "pods:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.podsService.ListPayload(ctx)
+	})
 }
 
 func (h *handler) listNamespaces(w http.ResponseWriter, r *http.Request) error {
-	payload, err := h.namespacesService.ListPayload(r.Context())
-	if err != nil {
-		return err
-	}
-
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+	return h.respondWithCachedPayload(w, r, "namespaces:list", readonlyNamespaceTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.namespacesService.ListPayload(ctx)
+	})
 }
 
 func (h *handler) listWorkload(scope string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		payload, err := h.workloadsService.ListPayload(r.Context(), scope)
-		if err != nil {
-			return err
-		}
-
-		writeRawJSON(w, http.StatusOK, payload)
-		return nil
+		return h.respondWithCachedPayload(w, r, fmt.Sprintf("workloads:%s:list", scope), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+			return h.workloadsService.ListPayload(ctx, scope)
+		})
 	}
 }
 
@@ -386,16 +355,17 @@ func (h *handler) workloadDetail(scope string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		namespace := chi.URLParam(r, "namespace")
 		name := chi.URLParam(r, "name")
-		payload, err := h.workloadsService.DetailPayload(r.Context(), scope, namespace, name)
-		if err != nil {
-			if errors.Is(err, service.ErrWorkloadNotFound) {
-				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+		return h.respondWithCachedPayload(w, r, fmt.Sprintf("workloads:%s:detail:%s:%s", scope, namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+			payload, err := h.workloadsService.DetailPayload(ctx, scope, namespace, name)
+			if err != nil {
+				if errors.Is(err, service.ErrWorkloadNotFound) {
+					return nil, newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+				}
+				return nil, err
 			}
-			return err
-		}
 
-		writeRawJSON(w, http.StatusOK, payload)
-		return nil
+			return payload, nil
+		})
 	}
 }
 
@@ -416,37 +386,39 @@ func (h *handler) list(scope string, key string) routeHandler {
 
 func (h *handler) nodesMetrics(w http.ResponseWriter, r *http.Request) error {
 	metricKey := chi.URLParam(r, "name")
-	payload, err := h.nodesService.MetricsPayload(r.Context(), metricKey)
-	if err != nil {
-		if errors.Is(err, service.ErrNodeNotFound) {
-			return newHTTPError(http.StatusNotFound, fmt.Sprintf("Node metrics not found for %s", metricKey))
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("nodes:metrics:%s", metricKey), readonlyMetricsTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.nodesService.MetricsPayload(ctx, metricKey)
+		if err != nil {
+			if errors.Is(err, service.ErrNodeNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, fmt.Sprintf("Node metrics not found for %s", metricKey))
+			}
+			return nil, err
 		}
-		return err
-	}
 
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+		return payload, nil
+	})
 }
 
 func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
 	name := chi.URLParam(r, "name")
-	listPayload, err := h.nodesService.ListPayload(r.Context())
-	if err != nil {
-		return err
-	}
-	payload, err := service.FindNodePayload(listPayload, name)
-	if err != nil {
-		if errors.Is(err, service.ErrNodeNotFound) {
-			return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("nodes:detail:%s", name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		listPayload, err := h.nodesService.ListPayload(ctx)
+		if err != nil {
+			return nil, err
 		}
-		return err
-	}
-	if payload == nil {
-		return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
-	}
+		payload, err := service.FindNodePayload(listPayload, name)
+		if err != nil {
+			if errors.Is(err, service.ErrNodeNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+			}
+			return nil, err
+		}
+		if payload == nil {
+			return nil, newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+		}
 
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+		return payload, nil
+	})
 }
 
 func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {
@@ -467,55 +439,58 @@ func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {
 func (h *handler) podMetrics(w http.ResponseWriter, r *http.Request) error {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	payload, err := h.podsService.MetricsPayload(r.Context(), namespace, name)
-	if err != nil {
-		if errors.Is(err, service.ErrPodNotFound) {
-			return newHTTPError(http.StatusNotFound, fmt.Sprintf("Pod metrics not found for %s/%s", namespace, name))
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pods:metrics:%s:%s", namespace, name), readonlyMetricsTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.podsService.MetricsPayload(ctx, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrPodNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, fmt.Sprintf("Pod metrics not found for %s/%s", namespace, name))
+			}
+			return nil, err
 		}
-		return err
-	}
 
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+		return payload, nil
+	})
 }
 
 func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	listPayload, err := h.podsService.ListPayload(r.Context())
-	if err != nil {
-		return err
-	}
-	payload, err := service.FindPodPayload(listPayload, namespace, name)
-	if err != nil {
-		if errors.Is(err, service.ErrPodNotFound) {
-			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pods:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		listPayload, err := h.podsService.ListPayload(ctx)
+		if err != nil {
+			return nil, err
 		}
-		return err
-	}
-	if payload == nil {
-		return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
-	}
+		payload, err := service.FindPodPayload(listPayload, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrPodNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+			}
+			return nil, err
+		}
+		if payload == nil {
+			return nil, newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+		}
 
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+		return payload, nil
+	})
 }
 
 func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error {
 	name := chi.URLParam(r, "name")
-	payload, err := h.namespacesService.DetailPayload(r.Context(), name)
-	if err != nil {
-		if errors.Is(err, service.ErrNamespaceNotFound) {
-			return newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("namespaces:detail:%s", name), readonlyNamespaceTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.namespacesService.DetailPayload(ctx, name)
+		if err != nil {
+			if errors.Is(err, service.ErrNamespaceNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
+			}
+			return nil, err
 		}
-		return err
-	}
-	if payload == nil {
-		return newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
-	}
+		if payload == nil {
+			return nil, newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
+		}
 
-	writeRawJSON(w, http.StatusOK, payload)
-	return nil
+		return payload, nil
+	})
 }
 
 func (h *handler) registerReadOnlyResource(r chi.Router, scope string) {

@@ -22,6 +22,7 @@ type handler struct {
 	store             *store.SnapshotStore
 	clusterStore      *store.ClusterStore
 	k8sManager        *k8s.Manager
+	dashboardService  *service.DashboardService
 	nodesService      *service.NodesService
 	podsService       *service.PodsService
 	workloadsService  *service.WorkloadsService
@@ -51,6 +52,7 @@ func NewRouter(
 		store:             snapshotStore,
 		clusterStore:      clusterStore,
 		k8sManager:        k8sManager,
+		dashboardService:  service.NewDashboardService(snapshotStore, k8sManager),
 		nodesService:      service.NewNodesService(snapshotStore, k8sManager),
 		podsService:       service.NewPodsService(snapshotStore, k8sManager),
 		workloadsService:  service.NewWorkloadsService(snapshotStore, k8sManager),
@@ -81,10 +83,10 @@ func NewRouter(
 	})
 
 	router.Route("/api/dashboard", func(r chi.Router) {
-		r.Get("/overview", h.wrap(h.snapshot("dashboard", "overview")))
-		r.Get("/resource-usage", h.wrap(h.snapshot("dashboard", "resource-usage")))
-		r.Get("/recent-events", h.wrap(h.snapshot("dashboard", "recent-events")))
-		r.Get("/namespace-distribution", h.wrap(h.snapshot("dashboard", "namespace-distribution")))
+		r.Get("/overview", h.wrap(h.dashboardOverview))
+		r.Get("/resource-usage", h.wrap(h.dashboardResourceUsage))
+		r.Get("/recent-events", h.wrap(h.dashboardRecentEvents))
+		r.Get("/namespace-distribution", h.wrap(h.dashboardNamespaceDistribution))
 	})
 
 	router.Route("/api/nodes", func(r chi.Router) {
@@ -300,6 +302,46 @@ func (h *handler) snapshot(scope string, key string) routeHandler {
 
 func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
 	payload, err := h.nodesService.ListPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
+func (h *handler) dashboardOverview(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.dashboardService.OverviewPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
+func (h *handler) dashboardResourceUsage(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.dashboardService.ResourceUsagePayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
+func (h *handler) dashboardNamespaceDistribution(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.dashboardService.NamespaceDistributionPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
+func (h *handler) dashboardRecentEvents(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.dashboardService.RecentEventsPayload(r.Context())
 	if err != nil {
 		return err
 	}

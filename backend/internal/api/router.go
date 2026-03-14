@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"k8s-agent-backend/internal/k8s"
+	"k8s-agent-backend/internal/service"
 	"k8s-agent-backend/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -21,6 +22,7 @@ type handler struct {
 	store        *store.SnapshotStore
 	clusterStore *store.ClusterStore
 	k8sManager   *k8s.Manager
+	nodesService *service.NodesService
 	cacheStatus  func() string
 }
 
@@ -46,6 +48,7 @@ func NewRouter(
 		store:        snapshotStore,
 		clusterStore: clusterStore,
 		k8sManager:   k8sManager,
+		nodesService: service.NewNodesService(snapshotStore, k8sManager),
 		cacheStatus:  cacheStatus,
 	}
 
@@ -79,7 +82,7 @@ func NewRouter(
 	})
 
 	router.Route("/api/nodes", func(r chi.Router) {
-		r.Get("/", h.wrap(h.list("nodes", "list")))
+		r.Get("/", h.wrap(h.listNodes))
 		r.Get("/{name}/metrics", h.wrap(h.nodesMetrics))
 		r.Get("/{name}", h.wrap(h.nodeDetail))
 	})
@@ -285,6 +288,16 @@ func (h *handler) snapshot(scope string, key string) routeHandler {
 	}
 }
 
+func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
+	payload, err := h.nodesService.ListPayload(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
+}
+
 func (h *handler) list(scope string, key string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		payload, err := h.store.Get(r.Context(), scope, key)
@@ -302,21 +315,33 @@ func (h *handler) list(scope string, key string) routeHandler {
 
 func (h *handler) nodesMetrics(w http.ResponseWriter, r *http.Request) error {
 	metricKey := chi.URLParam(r, "name")
-	message := fmt.Sprintf("Node metrics not found for %s", metricKey)
-	return h.mapEntry(w, r, "nodes", "metrics", metricKey, message, false)
+	payload, err := h.nodesService.MetricsPayload(r.Context(), metricKey)
+	if err != nil {
+		if errors.Is(err, service.ErrNodeNotFound) {
+			return newHTTPError(http.StatusNotFound, fmt.Sprintf("Node metrics not found for %s", metricKey))
+		}
+		return err
+	}
+
+	writeRawJSON(w, http.StatusOK, payload)
+	return nil
 }
 
 func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
 	name := chi.URLParam(r, "name")
-	payload, err := h.findListItemByName(r.Context(), "nodes", "list", name)
+	listPayload, err := h.nodesService.ListPayload(r.Context())
 	if err != nil {
 		return err
 	}
+	payload, err := service.FindNodePayload(listPayload, name)
+	if err != nil {
+		if errors.Is(err, service.ErrNodeNotFound) {
+			return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
+		}
+		return err
+	}
 	if payload == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"message": fmt.Sprintf("Node not found: %s", name),
-		})
-		return nil
+		return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
 	}
 
 	writeRawJSON(w, http.StatusOK, payload)

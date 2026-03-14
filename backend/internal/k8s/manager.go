@@ -15,6 +15,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+var (
+	ErrClusterNotConfigured = errors.New("default cluster not configured")
+	ErrClusterDisabled      = errors.New("cluster is disabled")
+)
+
 type Manager struct {
 	clusterStore   *store.ClusterStore
 	requestTimeout time.Duration
@@ -97,14 +102,7 @@ func (m *Manager) CheckCluster(ctx context.Context, cluster store.Cluster) (Conn
 		return result, nil
 	}
 
-	restConfig, err := m.buildRESTConfig(cluster)
-	if err != nil {
-		result.Status = store.ConnectionStatusError
-		result.Message = err.Error()
-		return result, nil
-	}
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
+	clientset, err := m.clientForCluster(cluster)
 	if err != nil {
 		result.Status = store.ConnectionStatusError
 		result.Message = err.Error()
@@ -122,6 +120,35 @@ func (m *Manager) CheckCluster(ctx context.Context, cluster store.Cluster) (Conn
 	result.ServerVersion = version.GitVersion
 	result.Message = "Cluster connection successful"
 	return result, nil
+}
+
+func (m *Manager) DefaultClient(ctx context.Context) (*store.Cluster, *kubernetes.Clientset, error) {
+	cluster, err := m.clusterStore.GetDefault(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cluster == nil {
+		return nil, nil, ErrClusterNotConfigured
+	}
+	if !cluster.IsEnabled {
+		return cluster, nil, ErrClusterDisabled
+	}
+
+	clientset, err := m.clientForCluster(*cluster)
+	if err != nil {
+		return cluster, nil, err
+	}
+
+	return cluster, clientset, nil
+}
+
+func (m *Manager) clientForCluster(cluster store.Cluster) (*kubernetes.Clientset, error) {
+	restConfig, err := m.buildRESTConfig(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return kubernetes.NewForConfig(restConfig)
 }
 
 func (m *Manager) buildRESTConfig(cluster store.Cluster) (*rest.Config, error) {

@@ -38,6 +38,7 @@
     apiKey: string;
     modelType: string;
     isDefault: boolean;
+    hasApiKey?: boolean;
   }
 
   interface NotificationSettingsResponse {
@@ -1862,6 +1863,7 @@
                                         type="password"
                                         value={editingModel.apiKey}
                                         onChange={(e) => setEditingModel({...editingModel, apiKey: e.target.value})}
+                                        placeholder={editingModel.hasApiKey ? '已配置密钥，留空保持不变' : '输入 API 密钥'}
                                         className={`w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
                                       />
                                     </div>
@@ -1920,6 +1922,9 @@
                                             </span>
                                           )}
                                         </h4>
+                                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                          密钥状态: {model.hasApiKey ? '已配置' : '未配置'}
+                                        </p>
                                         <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                                           模型标识: {model.id}
                                         </p>
@@ -2753,7 +2758,7 @@
                             type="password"
                             value={newModel.apiKey}
                             onChange={(e) => setNewModel({...newModel, apiKey: e.target.value})}
-                            placeholder="sk-..."
+                            placeholder="输入新的 API 密钥"
                             className={`w-full px-3 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
                           />
                         </div>

@@ -645,7 +645,7 @@ func (h *handler) getAIModels(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	writeJSON(w, http.StatusOK, models)
+	writeJSON(w, http.StatusOK, redactAIModels(models))
 	return nil
 }
 
@@ -655,7 +655,12 @@ func (h *handler) updateAIModels(w http.ResponseWriter, r *http.Request) error {
 		return newHTTPError(http.StatusBadRequest, "无效的请求参数")
 	}
 
-	models, err := normalizeAIModels(payload)
+	existingModels, err := h.currentAIModels(r.Context())
+	if err != nil {
+		return err
+	}
+
+	models, err := normalizeAIModels(mergeAIModelSecrets(payload, existingModels))
 	if err != nil {
 		return newHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -674,7 +679,7 @@ func (h *handler) updateAIModels(w http.ResponseWriter, r *http.Request) error {
 		},
 	})
 
-	writeJSON(w, http.StatusOK, models)
+	writeJSON(w, http.StatusOK, redactAIModels(models))
 	return nil
 }
 
@@ -1576,6 +1581,7 @@ type aiModelPayload struct {
 	APIKey     string `json:"apiKey"`
 	ModelType  string `json:"modelType"`
 	IsDefault  bool   `json:"isDefault"`
+	HasAPIKey  bool   `json:"hasApiKey,omitempty"`
 }
 
 type workloadScalePayload struct {
@@ -1850,6 +1856,7 @@ func normalizeAIModels(input []aiModelPayload) ([]aiModelPayload, error) {
 			APIKey:     strings.TrimSpace(item.APIKey),
 			ModelType:  strings.TrimSpace(item.ModelType),
 			IsDefault:  item.IsDefault,
+			HasAPIKey:  strings.TrimSpace(item.APIKey) != "",
 		}
 
 		if model.ID == "" {
@@ -1885,6 +1892,45 @@ func normalizeAIModels(input []aiModelPayload) ([]aiModelPayload, error) {
 	}
 
 	return models, nil
+}
+
+func redactAIModels(input []aiModelPayload) []aiModelPayload {
+	models := make([]aiModelPayload, 0, len(input))
+	for _, item := range input {
+		models = append(models, aiModelPayload{
+			ID:         item.ID,
+			Name:       item.Name,
+			APIBaseURL: item.APIBaseURL,
+			APIKey:     "",
+			ModelType:  item.ModelType,
+			IsDefault:  item.IsDefault,
+			HasAPIKey:  strings.TrimSpace(item.APIKey) != "",
+		})
+	}
+	return models
+}
+
+func mergeAIModelSecrets(input []aiModelPayload, existing []aiModelPayload) []aiModelPayload {
+	if len(input) == 0 {
+		return input
+	}
+
+	existingByID := make(map[string]aiModelPayload, len(existing))
+	for _, item := range existing {
+		existingByID[item.ID] = item
+	}
+
+	merged := make([]aiModelPayload, 0, len(input))
+	for _, item := range input {
+		if strings.TrimSpace(item.APIKey) == "" {
+			if current, ok := existingByID[strings.TrimSpace(item.ID)]; ok {
+				item.APIKey = current.APIKey
+			}
+		}
+		item.HasAPIKey = strings.TrimSpace(item.APIKey) != ""
+		merged = append(merged, item)
+	}
+	return merged
 }
 
 func (h *handler) currentSystemSettings(ctx context.Context) (systemSettingsDocument, error) {

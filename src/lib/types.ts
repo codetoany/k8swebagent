@@ -231,6 +231,8 @@ export interface SystemSettings {
   autoRefreshInterval: number;
   showResourceUsage: boolean;
   showEvents: boolean;
+  showNamespaceDistribution?: boolean;
+  navigationPosition?: 'left' | 'top';
   notifications: {
     level: 'all' | 'critical' | 'none';
     enabledTypes: string[];

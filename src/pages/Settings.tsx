@@ -2,9 +2,9 @@
   import { motion } from 'framer-motion';
   import { 
     Server, BarChart3, Database, Network, Settings, LogOut, 
-    Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
-    RefreshCw, PlusCircle, MoreVertical, Filter, Download,
-    AlertCircle, CheckCircle, ArrowUpDown, Eye, 
+    Moon, Sun, Menu, X, Bell, 
+    RefreshCw, PlusCircle,
+    AlertCircle, CheckCircle,
     User, Shield, BellRing, Info, HelpCircle,
     ExternalLink, Save, X as XIcon,
     BarChart, Brain, Edit, Trash, Check
@@ -24,6 +24,10 @@
   type ThemeOption = 'light' | 'dark' | 'system';
   type NotificationOption = 'all' | 'critical' | 'none';
   type LanguageOption = 'zh-CN' | 'en-US';
+  type NotificationType = 'node' | 'pod' | 'workload';
+  type NavigationPosition = 'left' | 'top';
+  type SettingsEditorMode = 'general' | 'notifications' | 'appearance';
+  type SettingsTab = 'general' | 'notifications' | 'appearance' | 'advanced' | 'audit' | 'ai-models';
   
   // 定义AI模型类型
   interface AIModel {
@@ -34,6 +38,36 @@
     modelType: string;
     isDefault: boolean;
   }
+
+  interface NotificationSettingsResponse {
+    level: NotificationOption;
+    enabledTypes: NotificationType[];
+  }
+
+  interface SystemSettingsResponse {
+    theme: ThemeOption;
+    language: LanguageOption;
+    autoRefreshInterval: number;
+    showResourceUsage: boolean;
+    showEvents: boolean;
+    showNamespaceDistribution: boolean;
+    navigationPosition: NavigationPosition;
+    notifications: NotificationSettingsResponse;
+  }
+
+  const createDefaultSystemSettings = (): SystemSettingsResponse => ({
+    theme: 'system',
+    language: 'zh-CN',
+    autoRefreshInterval: 30,
+    showResourceUsage: true,
+    showEvents: true,
+    showNamespaceDistribution: true,
+    navigationPosition: 'left',
+    notifications: {
+      level: 'all',
+      enabledTypes: ['node', 'pod', 'workload'],
+    },
+  });
 
   interface AuditLogEntry {
     id: string;
@@ -60,13 +94,13 @@
   type ClusterEditorMode = 'create' | 'edit';
 
   const SettingsPage = () => {
-    const { theme, toggleTheme } = useThemeContext();
+    const { theme, setTheme, toggleTheme } = useThemeContext();
     const { clusters, refreshClusters } = useClusterContext();
     const { logout } = useContext(AuthContext);
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState('general');
+    const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     
     // 设置表单状态
     const [themeOption, setThemeOption] = useState<ThemeOption>('system');
@@ -75,6 +109,13 @@
     const [autoRefresh, setAutoRefresh] = useState<number>(30);
     const [showResourceUsage, setShowResourceUsage] = useState(true);
     const [showEvents, setShowEvents] = useState(true);
+    const [showNamespaceDistribution, setShowNamespaceDistribution] = useState(true);
+    const [navigationPosition, setNavigationPosition] = useState<NavigationPosition>('left');
+    const [notificationEnabledTypes, setNotificationEnabledTypes] = useState<NotificationType[]>(['node', 'pod', 'workload']);
+    const [savedSystemSettings, setSavedSystemSettings] = useState<SystemSettingsResponse>(createDefaultSystemSettings);
+    const [settingsSaving, setSettingsSaving] = useState<SettingsEditorMode | ''>('');
+    const [isSettingsEditorOpen, setIsSettingsEditorOpen] = useState(false);
+    const [settingsEditorMode, setSettingsEditorMode] = useState<SettingsEditorMode>('general');
     const [clusterConfig, setClusterConfig] = useState<ClusterConfig>(createEmptyClusterConfig);
     const [savedClusterConfig, setSavedClusterConfig] = useState<ClusterConfig>(createEmptyClusterConfig);
     const [selectedClusterConfigId, setSelectedClusterConfigId] = useState('');
@@ -93,6 +134,7 @@
     const [auditActionFilter, setAuditActionFilter] = useState('');
     const [auditResourceTypeFilter, setAuditResourceTypeFilter] = useState('');
     const [auditQuery, setAuditQuery] = useState('');
+    const [aiModelsSaving, setAiModelsSaving] = useState(false);
     
     // AI模型相关状态
     const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -213,10 +255,20 @@
           return '删除集群';
         case 'cluster.test':
           return '测试连接';
+        case 'settings.update':
+          return '更新通用设置';
+        case 'settings.notifications.update':
+          return '更新通知设置';
+        case 'settings.ai-models.update':
+          return '更新 AI 模型';
         case 'workload.scale':
           return '扩缩容';
         case 'workload.restart':
           return '重启工作负载';
+        case 'workload.delete':
+          return '删除工作负载';
+        case 'pod.restart':
+          return '重启 Pod';
         case 'pod.delete':
           return '删除 Pod';
         case 'node.cordon':
@@ -224,13 +276,13 @@
         case 'node.uncordon':
           return '节点恢复调度';
         case 'workload.pause':
-          return 'Pause workload';
+          return '暂停工作负载';
         case 'workload.resume':
-          return 'Resume workload';
+          return '恢复工作负载';
         case 'node.maintenance.enable':
-          return 'Enable maintenance taint';
+          return '开启维护污点';
         case 'node.maintenance.disable':
-          return 'Clear maintenance taint';
+          return '清除维护污点';
         default:
           return action;
       }
@@ -260,6 +312,9 @@
       { value: 'cluster.update', label: '更新集群' },
       { value: 'cluster.delete', label: '删除集群' },
       { value: 'cluster.test', label: '测试连接' },
+      { value: 'settings.update', label: '更新通用设置' },
+      { value: 'settings.notifications.update', label: '更新通知设置' },
+      { value: 'settings.ai-models.update', label: '更新 AI 模型' },
       { value: 'workload.scale', label: '扩缩容' },
       { value: 'workload.restart', label: '重启工作负载' },
       { value: 'workload.delete', label: '删除工作负载' },
@@ -270,15 +325,16 @@
     ];
 
     auditActionOptions.push(
-      { value: 'workload.pause', label: 'Pause workload' },
-      { value: 'workload.resume', label: 'Resume workload' },
-      { value: 'node.maintenance.enable', label: 'Enable maintenance taint' },
-      { value: 'node.maintenance.disable', label: 'Clear maintenance taint' },
+      { value: 'workload.pause', label: '暂停工作负载' },
+      { value: 'workload.resume', label: '恢复工作负载' },
+      { value: 'node.maintenance.enable', label: '开启维护污点' },
+      { value: 'node.maintenance.disable', label: '清除维护污点' },
     );
 
     const auditResourceTypeOptions = [
       { value: '', label: '全部资源' },
       { value: 'cluster', label: '集群' },
+      { value: 'settings', label: '设置' },
       { value: 'pod', label: 'Pod' },
       { value: 'node', label: '节点' },
       { value: 'deployments', label: 'Deployment' },
@@ -311,6 +367,41 @@
       applyClusterConfig(nextCluster);
       return nextCluster;
     };
+
+    const openSettingsEditor = (mode: SettingsEditorMode) => {
+      setSettingsEditorMode(mode);
+      setIsSettingsEditorOpen(true);
+    };
+
+    const closeSettingsEditor = () => {
+      setIsSettingsEditorOpen(false);
+    };
+
+    const cancelSettingsEditor = () => {
+      applySystemSettings(savedSystemSettings);
+      setIsSettingsEditorOpen(false);
+    };
+
+    const toggleNotificationType = (type: NotificationType) => {
+      setNotificationEnabledTypes((current) => (
+        current.includes(type)
+          ? current.filter((item) => item !== type)
+          : [...current, type]
+      ));
+    };
+
+    const applySystemSettings = (settings: SystemSettingsResponse) => {
+      setThemeOption(settings.theme);
+      setTheme(settings.theme);
+      setLanguageOption(settings.language);
+      setAutoRefresh(settings.autoRefreshInterval);
+      setShowResourceUsage(settings.showResourceUsage);
+      setShowEvents(settings.showEvents);
+      setShowNamespaceDistribution(settings.showNamespaceDistribution ?? true);
+      setNavigationPosition(settings.navigationPosition ?? 'left');
+      setNotificationOption(settings.notifications?.level ?? 'all');
+      setNotificationEnabledTypes(settings.notifications?.enabledTypes ?? ['node', 'pod', 'workload']);
+    };
     
     // 接入只读设置接口
     useEffect(() => {
@@ -320,7 +411,7 @@
         setLoading(true);
         try {
           const [settings, models] = await Promise.all([
-            apiClient.get<any>(settingsAPI.getSettings),
+            apiClient.get<SystemSettingsResponse>(settingsAPI.getSettings),
             apiClient.get<AIModel[]>(settingsAPI.getAIModels),
             loadClusterConfig(),
           ]);
@@ -329,24 +420,17 @@
             return;
           }
 
-          if (settings?.theme) {
-            setThemeOption(settings.theme as ThemeOption);
-          }
-          if (settings?.language) {
-            setLanguageOption(settings.language as LanguageOption);
-          }
-          if (settings?.autoRefreshInterval !== undefined) {
-            setAutoRefresh(settings.autoRefreshInterval);
-          }
-          if (settings?.showResourceUsage !== undefined) {
-            setShowResourceUsage(settings.showResourceUsage);
-          }
-          if (settings?.showEvents !== undefined) {
-            setShowEvents(settings.showEvents);
-          }
-          if (settings?.notifications?.level) {
-            setNotificationOption(settings.notifications.level as NotificationOption);
-          }
+          const normalizedSettings = {
+            ...createDefaultSystemSettings(),
+            ...settings,
+            notifications: {
+              ...createDefaultSystemSettings().notifications,
+              ...settings?.notifications,
+            },
+          } satisfies SystemSettingsResponse;
+
+          setSavedSystemSettings(normalizedSettings);
+          applySystemSettings(normalizedSettings);
           if (Array.isArray(models)) {
             setAiModels(models.map((model) => ({ ...model, apiKey: model.apiKey ?? '' })));
           }
@@ -368,7 +452,7 @@
       let active = true;
 
       const loadAuditLogs = async () => {
-        if (activeTab !== 'advanced') {
+        if (activeTab !== 'audit') {
           return;
         }
 
@@ -444,34 +528,67 @@
     // 处理主题变更
     const handleThemeChange = (option: ThemeOption) => {
       setThemeOption(option);
-      localStorage.setItem('theme', option);
-      
-      if (option === 'system') {
-        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.classList.remove('light', 'dark');
-        document.documentElement.classList.add(isDarkMode ? 'dark' : 'light');
-      } else {
-        document.documentElement.classList.remove('light', 'dark');
-        document.documentElement.classList.add(option);
+      setTheme(option);
+    };
+
+    const persistSystemSettings = async () => {
+      setSettingsSaving(settingsEditorMode);
+      try {
+        const payload: SystemSettingsResponse = {
+          theme: themeOption,
+          language: languageOption,
+          autoRefreshInterval: autoRefresh,
+          showResourceUsage,
+          showEvents,
+          showNamespaceDistribution,
+          navigationPosition,
+          notifications: {
+            level: notificationOption,
+            enabledTypes: notificationEnabledTypes,
+          },
+        };
+
+        await apiClient.put<SystemSettingsResponse>(settingsAPI.updateSettings, payload);
+        setSavedSystemSettings(payload);
+        toast.success('设置已保存');
+        closeSettingsEditor();
+      } finally {
+        setSettingsSaving('');
       }
     };
 
-    // 保存设置
-    const handleSaveSettings = () => {
-      // 模拟保存设置到本地存储
-      const settings = {
-        themeOption,
-        notificationOption,
-        languageOption,
-        autoRefresh,
-        showResourceUsage,
-        showEvents
-      };
-      
-      localStorage.setItem('k8s-agent-settings', JSON.stringify(settings));
-      
-      // 显示保存成功提示
-      toast('设置已保存！');
+    const persistNotificationSettings = async () => {
+      setSettingsSaving('notifications');
+      try {
+        await apiClient.put<NotificationSettingsResponse>(
+          settingsAPI.updateNotificationSettings,
+          {
+            level: notificationOption,
+            enabledTypes: notificationEnabledTypes,
+          },
+        );
+        setSavedSystemSettings((current) => ({
+          ...current,
+          notifications: {
+            level: notificationOption,
+            enabledTypes: notificationEnabledTypes,
+          },
+        }));
+        toast.success('通知设置已保存');
+        closeSettingsEditor();
+      } finally {
+        setSettingsSaving('');
+      }
+    };
+
+    const persistAIModels = async (models: AIModel[]) => {
+      setAiModelsSaving(true);
+      try {
+        const savedModels = await apiClient.put<AIModel[]>(settingsAPI.updateAIModels, models);
+        setAiModels(savedModels.map((model) => ({ ...model, apiKey: model.apiKey ?? '' })));
+      } finally {
+        setAiModelsSaving(false);
+      }
     };
 
     // 渲染导航项
@@ -651,18 +768,6 @@
       }
     };
 
-    const handleCancelSettings = () => {
-      if (activeTab === 'advanced') {
-        setSelectedClusterConfigId(savedClusterConfig.id);
-        updateClusterConfig({
-          ...savedClusterConfig,
-          token: '',
-          caData: '',
-          kubeconfig: '',
-        });
-      }
-    };
-
     const renderNavItem = (icon: React.ReactNode, label: string, path: string, active: boolean = false) => (
       <motion.div 
         className={`flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer transition-all duration-300
@@ -681,14 +786,8 @@
       </motion.div>
     );
     
-    // 保存AI模型
-    const saveAiModels = (models: AIModel[]) => {
-      setAiModels(models);
-      localStorage.setItem('aiModels', JSON.stringify(models));
-    };
-    
     // 添加AI模型
-    const handleAddModel = () => {
+    const handleAddModel = async () => {
       if (!newModel.name || !newModel.apiBaseUrl) {
         toast('请填写模型名称和API基础地址');
         return;
@@ -707,7 +806,7 @@
       };
       
       updatedModels.push(modelToAdd);
-      saveAiModels(updatedModels);
+      await persistAIModels(updatedModels);
       
       // 重置表单
       setNewModel({
@@ -719,7 +818,7 @@
         isDefault: false
       });
       setIsAddingModel(false);
-      toast('AI模型已添加');
+      toast.success('AI模型已添加');
     };
     
     // 编辑AI模型
@@ -728,7 +827,7 @@
     };
     
     // 保存编辑的模型
-    const handleSaveEdit = () => {
+    const handleSaveEdit = async () => {
       if (!editingModel || !editingModel.name || !editingModel.apiBaseUrl) {
         toast('请填写模型名称和API基础地址');
         return;
@@ -745,31 +844,31 @@
         return model;
       });
       
-      saveAiModels(updatedModels);
+      await persistAIModels(updatedModels);
       setEditingModel(null);
-      toast('AI模型已更新');
+      toast.success('AI模型已更新');
     };
     
     // 删除AI模型
-    const handleDeleteModel = (id: string) => {
+    const handleDeleteModel = async (id: string) => {
       if (aiModels.length <= 1) {
         toast('至少需要保留一个AI模型');
         return;
       }
       
       const updatedModels = aiModels.filter(model => model.id !== id);
-      saveAiModels(updatedModels);
-      toast('AI模型已删除');
+      await persistAIModels(updatedModels);
+      toast.success('AI模型已删除');
     };
     
     // 设置默认模型
-    const handleSetDefault = (id: string) => {
+    const handleSetDefault = async (id: string) => {
       const updatedModels = aiModels.map(model => ({
         ...model,
         isDefault: model.id === id
       }));
-      saveAiModels(updatedModels);
-      toast('默认模型已设置');
+      await persistAIModels(updatedModels);
+      toast.success('默认模型已设置');
     };
 
     const containerVariants = {
@@ -791,6 +890,93 @@
         transition: { duration: 0.3 }
       }
     };
+
+    const notificationTypeLabels: Record<NotificationType, string> = {
+      node: '节点状态',
+      pod: 'Pod 事件',
+      workload: '工作负载变更',
+    };
+
+    const themeLabelMap: Record<ThemeOption, string> = {
+      light: '亮色模式',
+      dark: '暗色模式',
+      system: '跟随系统',
+    };
+
+    const languageLabelMap: Record<LanguageOption, string> = {
+      'zh-CN': '简体中文',
+      'en-US': 'English (US)',
+    };
+
+    const notificationLevelLabelMap: Record<NotificationOption, string> = {
+      all: '所有通知',
+      critical: '仅关键通知',
+      none: '关闭全部通知',
+    };
+
+    const renderSettingsCard = (
+      title: string,
+      description: string,
+      badge: string,
+      lines: string[],
+      onEdit: () => void,
+      icon: React.ReactNode,
+    ) => (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className={`rounded-xl border p-4 ${
+          theme === 'dark' ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className={`text-base font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                {title}
+              </h4>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                theme === 'dark' ? 'bg-blue-500/10 text-blue-300' : 'bg-blue-50 text-blue-700'
+              }`}>
+                {badge}
+              </span>
+            </div>
+            <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+              {description}
+            </p>
+          </div>
+          <div className={`rounded-lg p-2 ${theme === 'dark' ? 'bg-gray-700 text-blue-300' : 'bg-blue-50 text-blue-600'}`}>
+            {icon}
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2 text-sm">
+          {lines.map((line) => (
+            <div key={line} className={`rounded-lg px-3 py-2 ${
+              theme === 'dark' ? 'bg-gray-900/50 text-gray-300' : 'bg-gray-50 text-gray-600'
+            }`}>
+              {line}
+            </div>
+          ))}
+        </div>
+
+        <div className={`mt-4 border-t pt-4 ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+          <button
+            type="button"
+            onClick={onEdit}
+            className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+              theme === 'dark'
+                ? 'bg-blue-500/10 text-blue-300 hover:bg-blue-500/20'
+                : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+            }`}
+          >
+            <Edit size={13} className="mr-1.5" />
+            编辑
+          </button>
+        </div>
+      </motion.div>
+    );
 
     return (
       <div className={`min-h-screen flex ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-300`}>
@@ -902,7 +1088,7 @@
                       <div key={item} className={`h-10 w-24 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
                     <div className="space-y-4">
                       {[1, 2, 3].map((item) => (
                         <div key={item} className="space-y-2">
@@ -1003,6 +1189,21 @@
                     </button>
                     <button 
                       className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
+                        activeTab === 'audit' 
+                          ? theme === 'dark' 
+                            ? 'bg-gray-750 text-white border-b-2 border-blue-500' 
+                            : 'bg-gray-100 text-gray-900 border-b-2 border-blue-500' 
+                          : theme === 'dark' 
+                            ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
+                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                      }`}
+                      onClick={() => setActiveTab('audit')}
+                    >
+                      <Shield size={16} className="inline mr-1" />
+                      操作审计
+                    </button>
+                    <button 
+                      className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
                         activeTab === 'ai-models' 
                           ? theme === 'dark' 
                             ? 'bg-gray-750 text-white border-b-2 border-blue-500' 
@@ -1029,241 +1230,344 @@
                     <div className="space-y-6">
                       {activeTab === 'general' && (
                         <>
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              主题
-                            </label>
-                            <div className="space-y-2">
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="theme-light"
-                                  name="theme"
-                                  value="light"
-                                  checked={themeOption === 'light'}
-                                  onChange={() => handleThemeChange('light')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                />
-                                <label htmlFor="theme-light" className="ml-2 text-sm">
-                                  亮色模式
-                                </label>
-                              </div>
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="theme-dark"
-                                  name="theme"
-                                  value="dark"
-                                  checked={themeOption === 'dark'}
-                                  onChange={() => handleThemeChange('dark')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                />
-                                <label htmlFor="theme-dark" className="ml-2 text-sm">
-                                  暗色模式
-                                </label>
-                              </div>
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="theme-system"
-                                  name="theme"
-                                  value="system"
-                                  checked={themeOption === 'system'}
-                                  onChange={() => handleThemeChange('system')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                />
-                                <label htmlFor="theme-system" className="ml-2 text-sm">
-                                  跟随系统
-                                </label>
-                              </div>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                通用设置
+                              </h3>
+                              <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                将主题、语言和刷新策略整理成摘要卡片，点编辑再进入配置面板。
+                              </p>
                             </div>
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              语言
-                            </label>
-                            <select
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                              value={languageOption}
-                              onChange={(e) => setLanguageOption(e.target.value as LanguageOption)}
+                            <button
+                              type="button"
+                              onClick={() => openSettingsEditor('general')}
+                              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                                theme === 'dark'
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                              }`}
                             >
-                              <option value="zh-CN">简体中文</option>
-                              <option value="en-US">English (US)</option>
-                            </select>
+                              <Edit size={16} className="mr-2" />
+                              编辑通用设置
+                            </button>
                           </div>
 
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              自动刷新间隔 (秒)
-                            </label>
-                            <select
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                              value={autoRefresh}
-                              onChange={(e) => setAutoRefresh(parseInt(e.target.value))}
-                            >
-                              <option value={10}>10</option>
-                              <option value={30}>30</option>
-                              <option value={60}>60</option>
-                              <option value={120}>120</option>
-                              <option value={300}>300</option>
-                              <option value={0}>禁用</option>
-                            </select>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {renderSettingsCard(
+                              '主题与语言',
+                              '统一管理界面主题和使用语言。',
+                              themeLabelMap[themeOption],
+                              [
+                                `当前主题：${themeLabelMap[themeOption]}`,
+                                `界面语言：${languageLabelMap[languageOption]}`,
+                              ],
+                              () => openSettingsEditor('general'),
+                              <Moon size={18} />,
+                            )}
+                            {renderSettingsCard(
+                              '刷新策略',
+                              '控制资源页轮询节奏和默认行为。',
+                              autoRefresh === 0 ? '已关闭自动刷新' : `${autoRefresh} 秒`,
+                              [
+                                autoRefresh === 0 ? '自动刷新：手动触发' : `自动刷新：每 ${autoRefresh} 秒`,
+                                '修改后会同步保存到后端设置接口',
+                              ],
+                              () => openSettingsEditor('general'),
+                              <RefreshCw size={18} />,
+                            )}
                           </div>
-
                         </>
                       )}
 
                       {activeTab === 'notifications' && (
                         <>
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              通知级别
-                            </label>
-                            <div className="space-y-2">
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="notifications-all"
-                                  name="notifications"
-                                  value="all"
-                                  checked={notificationOption === 'all'}
-                                  onChange={() => setNotificationOption('all')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                /><label htmlFor="notifications-all" className="ml-2 text-sm">
-                                  所有通知
-                                </label>
-                              </div>
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="notifications-critical"
-                                  name="notifications"
-                                  value="critical"
-                                  checked={notificationOption === 'critical'}
-                                  onChange={() => setNotificationOption('critical')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                />
-                                <label htmlFor="notifications-critical" className="ml-2 text-sm">
-                                  仅重要通知
-                                </label>
-                              </div>
-                              <div className="flex items-center">
-                                <input
-                                  type="radio"
-                                  id="notifications-none"
-                                  name="notifications"
-                                  value="none"
-                                  checked={notificationOption === 'none'}
-                                  onChange={() => setNotificationOption('none')}
-                                  className={`w-4 h-4 text-blue-500 focus:ring-blue-400 border-gray-300 rounded ${theme === 'dark' ? 'border-gray-600' : 'border-gray-300'}`}
-                                />
-                                <label htmlFor="notifications-none" className="ml-2 text-sm">
-                                  禁用通知
-                                </label>
-                              </div>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                通知设置
+                              </h3>
+                              <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                这部分现在走真实后端接口，保存后会落库，不再只是前端占位。
+                              </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => openSettingsEditor('notifications')}
+                              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                                theme === 'dark'
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                              }`}
+                            >
+                              <Edit size={16} className="mr-2" />
+                              编辑通知设置
+                            </button>
                           </div>
 
-                          <div className="space-y-4">
-                            <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              通知类型
-                            </h3>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <BellRing size={16} className="mr-2" />
-                                <span className="text-sm">节点状态变化</span>
-                              </div><label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={showEvents} onChange={(e) => setShowEvents(e.target.checked)} className="sr-only peer" />
-                                <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                              </label>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <AlertCircle size={16} className="mr-2" />
-                                <span className="text-sm">Pod 失败通知</span>
-                              </div>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={true} readOnly className="sr-only peer" />
-                                <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                              </label>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <RefreshCw size={16} className="mr-2" />
-                                <span className="text-sm">工作负载更新</span>
-                              </div>
-                              <label className="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" checked={true} readOnly className="sr-only peer" />
-                                <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                              </label>
-                            </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {renderSettingsCard(
+                              '通知级别',
+                              '控制系统发送的通知范围。',
+                              notificationLevelLabelMap[notificationOption],
+                              [
+                                `当前策略：${notificationLevelLabelMap[notificationOption]}`,
+                                notificationOption === 'none' ? '当前不会推送任何通知' : '可进一步勾选需要的通知类型',
+                              ],
+                              () => openSettingsEditor('notifications'),
+                              <Bell size={18} />,
+                            )}
+                            {renderSettingsCard(
+                              '通知类型',
+                              '按资源种类筛选真正需要关注的事件。',
+                              `${notificationEnabledTypes.length} 项已启用`,
+                              notificationEnabledTypes.length > 0
+                                ? notificationEnabledTypes.map((type) => `已启用：${notificationTypeLabels[type]}`)
+                                : ['当前未启用任何通知类型'],
+                              () => openSettingsEditor('notifications'),
+                              <BellRing size={18} />,
+                            )}
                           </div>
                         </>
                       )}
 
                       {activeTab === 'appearance' && (
                         <>
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              仪表盘显示选项
-                            </label>
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  <Server size={16} className="mr-2" />
-                                  <span className="text-sm">显示资源使用图表</span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                  <input type="checkbox" checked={showResourceUsage} onChange={(e) => setShowResourceUsage(e.target.checked)} className="sr-only peer" />
-                                  <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                  <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                                </label>
-                              </div>
-                              
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  <Bell size={16} className="mr-2" />
-                                  <span className="text-sm">显示最近事件</span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                  <input type="checkbox" checked={showEvents} onChange={(e) => setShowEvents(e.target.checked)} className="sr-only peer" />
-                                  <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                  <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                                </label>
-                              </div>
-                              
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  <BarChart size={16} className="mr-2" />
-                                  <span className="text-sm">显示命名空间分布</span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                  <input type="checkbox" checked={true} readOnly className="sr-only peer" />
-                                  <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                                  <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                                </label>
-                              </div>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                外观设置
+                              </h3>
+                              <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                将仪表盘显隐项和布局偏好收成卡片，保持和集群接入一致的编辑体验。
+                              </p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => openSettingsEditor('appearance')}
+                              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                                theme === 'dark'
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                              }`}
+                            >
+                              <Edit size={16} className="mr-2" />
+                              编辑外观设置
+                            </button>
                           </div>
 
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              导航栏位置
-                            </label>
-                            <select
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                              defaultValue="left"
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {renderSettingsCard(
+                              '仪表盘组件',
+                              '控制默认展示的监控区块。',
+                              `${[showResourceUsage, showEvents, showNamespaceDistribution].filter(Boolean).length}/3 已启用`,
+                              [
+                                `资源使用图表：${showResourceUsage ? '显示' : '隐藏'}`,
+                                `最近事件：${showEvents ? '显示' : '隐藏'}`,
+                                `命名空间分布：${showNamespaceDistribution ? '显示' : '隐藏'}`,
+                              ],
+                              () => openSettingsEditor('appearance'),
+                              <BarChart size={18} />,
+                            )}
+                            {renderSettingsCard(
+                              '导航布局',
+                              '记录系统偏好的导航布局方案。',
+                              navigationPosition === 'left' ? '左侧导航' : '顶部导航',
+                              [
+                                `导航位置：${navigationPosition === 'left' ? '左侧' : '顶部'}`,
+                                '保存后会同步写入设置中心',
+                              ],
+                              () => openSettingsEditor('appearance'),
+                              <Settings size={18} />,
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {activeTab === 'audit' && (
+                        <>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                操作审计
+                              </h3>
+                              <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                单独查看集群接入、设置变更和资源写操作的审计记录，不再塞在高级设置里。
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setAuditRefreshNonce((value) => value + 1)}
+                              className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                theme === 'dark'
+                                  ? 'bg-gray-700 text-gray-100 hover:bg-gray-600'
+                                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                              }`}
                             >
-                              <option value="left">左侧</option>
-                              <option value="top">顶部</option>
-                            </select>
+                              <RefreshCw size={13} className={`mr-1.5 ${auditLogsLoading ? 'animate-spin' : ''}`} />
+                              刷新
+                            </button>
+                          </div>
+
+                          <div className={`rounded-xl border p-4 ${
+                            theme === 'dark' ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'
+                          }`}>
+                            <div className="space-y-4">
+                              <div className="grid gap-3 md:grid-cols-4">
+                                <div className="md:col-span-2">
+                                  <input
+                                    type="text"
+                                    value={auditQuery}
+                                    onChange={(event) => setAuditQuery(event.target.value)}
+                                    placeholder="搜索资源名称、结果信息或操作人"
+                                    className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                      theme === 'dark'
+                                        ? 'border-gray-600 bg-gray-900 text-white'
+                                        : 'border-gray-200 bg-white text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                                <select
+                                  value={auditStatusFilter}
+                                  onChange={(event) => setAuditStatusFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  <option value="">全部结果</option>
+                                  <option value="success">成功</option>
+                                  <option value="failed">失败</option>
+                                </select>
+                                <select
+                                  value={auditActionFilter}
+                                  onChange={(event) => setAuditActionFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  {auditActionOptions.map((option) => (
+                                    <option key={option.value || 'all'} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-4">
+                                <select
+                                  value={auditResourceTypeFilter}
+                                  onChange={(event) => setAuditResourceTypeFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  {auditResourceTypeOptions.map((option) => (
+                                    <option key={option.value || 'all'} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className={`md:col-span-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
+                                  theme === 'dark'
+                                    ? 'border-gray-700 bg-gray-900/40 text-gray-400'
+                                    : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }`}>
+                                  <span>当前集群过滤：{selectedClusterConfigId || '全部集群'}</span>
+                                  {(auditQuery || auditStatusFilter || auditActionFilter || auditResourceTypeFilter) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAuditQuery('');
+                                        setAuditStatusFilter('');
+                                        setAuditActionFilter('');
+                                        setAuditResourceTypeFilter('');
+                                      }}
+                                      className={`rounded-lg px-2 py-1 ${
+                                        theme === 'dark'
+                                          ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                          : 'bg-white text-gray-700 hover:bg-gray-100'
+                                      }`}
+                                    >
+                                      清空筛选
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {auditLogsLoading ? (
+                                <div className={`rounded-lg border px-4 py-6 text-sm ${
+                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }`}>
+                                  正在加载审计日志...
+                                </div>
+                              ) : auditLogs.length === 0 ? (
+                                <div className={`rounded-lg border px-4 py-6 text-sm ${
+                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }`}>
+                                  当前还没有可显示的操作记录。
+                                </div>
+                              ) : (
+                                auditLogs.map((entry) => {
+                                  const statusMeta = getAuditStatusMeta(entry.status);
+                                  return (
+                                    <div
+                                      key={entry.id}
+                                      className={`rounded-lg border px-4 py-3 ${
+                                        theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50'
+                                      }`}
+                                    >
+                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta.badgeClass}`}>
+                                              {statusMeta.label}
+                                            </span>
+                                            <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                              {getAuditActionLabel(entry.action)}
+                                            </span>
+                                            <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              {entry.namespace ? `${entry.namespace}/` : ''}{entry.resourceName || '-'}
+                                            </span>
+                                          </div>
+                                          <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                            {entry.message || '已记录操作结果'}
+                                          </p>
+                                          <div className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${
+                                            theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                          }`}>
+                                            <span>资源类型：{entry.resourceType || '-'}</span>
+                                            <span>集群：{entry.clusterName || entry.clusterId || '未指定'}</span>
+                                            <span>操作人：{entry.actorName || entry.actorEmail || '系统'}</span>
+                                          </div>
+                                        </div>
+                                        <div className={`shrink-0 text-xs ${theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}`}>
+                                          {formatClusterDate(entry.createdAt)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                            {!auditLogsLoading && auditTotal > 0 && (
+                              <TablePagination
+                                theme={theme === 'dark' ? 'dark' : 'light'}
+                                currentPage={auditCurrentPage}
+                                pageSize={auditPageSize}
+                                totalItems={auditTotal}
+                                onPageChange={setAuditCurrentPage}
+                                onPageSizeChange={(size) => {
+                                  setAuditPageSize(size);
+                                  setAuditCurrentPage(1);
+                                }}
+                              />
+                            )}
                           </div>
                         </>
                       )}
@@ -1472,190 +1776,6 @@
                           <div className={`rounded-lg border p-3 text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
                             资源页已经支持按集群切换显示；这里保存的是接入配置。建议先保存，再通过卡片编辑补充或更新凭证，然后在弹出的面板中测试连接。
                           </div>
-
-                          <div className={`rounded-xl border p-4 ${
-                            theme === 'dark' ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'
-                          }`}>
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <h4 className={`text-base font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                                  最近操作审计
-                                </h4>
-                                <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                                  展示最近 10 条集群接入和资源写操作记录，便于确认谁在什么时间做了什么变更。
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setAuditRefreshNonce((value) => value + 1)}
-                                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
-                                  theme === 'dark'
-                                    ? 'bg-gray-700 text-gray-100 hover:bg-gray-600'
-                                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                                }`}
-                              >
-                                <RefreshCw size={13} className={`mr-1.5 ${auditLogsLoading ? 'animate-spin' : ''}`} />
-                                刷新
-                              </button>
-                            </div>
-
-                            <div className="mt-4 space-y-4">
-                              <div className="grid gap-3 md:grid-cols-4">
-                                <div className="md:col-span-2">
-                                  <input
-                                    type="text"
-                                    value={auditQuery}
-                                    onChange={(event) => setAuditQuery(event.target.value)}
-                                    placeholder="搜索资源名称、结果信息或操作者"
-                                    className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${
-                                      theme === 'dark'
-                                        ? 'border-gray-600 bg-gray-900 text-white'
-                                        : 'border-gray-200 bg-white text-gray-900'
-                                    }`}
-                                  />
-                                </div>
-                                <select
-                                  value={auditStatusFilter}
-                                  onChange={(event) => setAuditStatusFilter(event.target.value)}
-                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
-                                    theme === 'dark'
-                                      ? 'border-gray-600 bg-gray-900 text-white'
-                                      : 'border-gray-200 bg-white text-gray-900'
-                                  }`}
-                                >
-                                  <option value="">全部结果</option>
-                                  <option value="success">成功</option>
-                                  <option value="failed">失败</option>
-                                </select>
-                                <select
-                                  value={auditActionFilter}
-                                  onChange={(event) => setAuditActionFilter(event.target.value)}
-                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
-                                    theme === 'dark'
-                                      ? 'border-gray-600 bg-gray-900 text-white'
-                                      : 'border-gray-200 bg-white text-gray-900'
-                                  }`}
-                                >
-                                  {auditActionOptions.map((option) => (
-                                    <option key={option.value || 'all'} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div className="grid gap-3 md:grid-cols-4">
-                                <select
-                                  value={auditResourceTypeFilter}
-                                  onChange={(event) => setAuditResourceTypeFilter(event.target.value)}
-                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
-                                    theme === 'dark'
-                                      ? 'border-gray-600 bg-gray-900 text-white'
-                                      : 'border-gray-200 bg-white text-gray-900'
-                                  }`}
-                                >
-                                  {auditResourceTypeOptions.map((option) => (
-                                    <option key={option.value || 'all'} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <div className="md:col-span-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
-                                  theme === 'dark'
-                                    ? 'border-gray-700 bg-gray-900/40 text-gray-400'
-                                    : 'border-gray-200 bg-gray-50 text-gray-500'
-                                }">
-                                  <span>当前集群过滤：{selectedClusterConfigId || '全部集群'}</span>
-                                  {(auditQuery || auditStatusFilter || auditActionFilter || auditResourceTypeFilter) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setAuditQuery('');
-                                        setAuditStatusFilter('');
-                                        setAuditActionFilter('');
-                                        setAuditResourceTypeFilter('');
-                                      }}
-                                      className={`rounded-lg px-2 py-1 ${
-                                        theme === 'dark'
-                                          ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                                          : 'bg-white text-gray-700 hover:bg-gray-100'
-                                      }`}
-                                    >
-                                      清空筛选
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {auditLogsLoading ? (
-                                <div className={`rounded-lg border px-4 py-6 text-sm ${
-                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
-                                }`}>
-                                  正在加载审计日志...
-                                </div>
-                              ) : auditLogs.length === 0 ? (
-                                <div className={`rounded-lg border px-4 py-6 text-sm ${
-                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
-                                }`}>
-                                  当前还没有可显示的操作记录。
-                                </div>
-                              ) : (
-                                auditLogs.map((entry) => {
-                                  const statusMeta = getAuditStatusMeta(entry.status);
-                                  return (
-                                    <div
-                                      key={entry.id}
-                                      className={`rounded-lg border px-4 py-3 ${
-                                        theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50'
-                                      }`}
-                                    >
-                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                        <div className="min-w-0">
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta.badgeClass}`}>
-                                              {statusMeta.label}
-                                            </span>
-                                            <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                                              {getAuditActionLabel(entry.action)}
-                                            </span>
-                                            <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                              {entry.namespace ? `${entry.namespace}/` : ''}{entry.resourceName || '-'}
-                                            </span>
-                                          </div>
-                                          <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                                            {entry.message || '已记录操作结果'}
-                                          </p>
-                                          <div className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${
-                                            theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                                          }`}>
-                                            <span>资源类型：{entry.resourceType || '-'}</span>
-                                            <span>集群：{entry.clusterName || entry.clusterId || '未指定'}</span>
-                                            <span>操作者：{entry.actorName || entry.actorEmail || '系统'}</span>
-                                          </div>
-                                        </div>
-                                        <div className={`shrink-0 text-xs ${theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}`}>
-                                          {formatClusterDate(entry.createdAt)}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                            {!auditLogsLoading && auditTotal > 0 && (
-                              <TablePagination
-                                theme={theme}
-                                currentPage={auditCurrentPage}
-                                pageSize={auditPageSize}
-                                totalItems={auditTotal}
-                                onPageChange={setAuditCurrentPage}
-                                onPageSizeChange={(size) => {
-                                  setAuditPageSize(size);
-                                  setAuditCurrentPage(1);
-                                }}
-                              />
-                            )}
-                          </div>
                         </>
                       )}
 
@@ -1668,6 +1788,7 @@
                             </h3>
                             <button 
                               onClick={() => setIsAddingModel(true)}
+                              disabled={aiModelsSaving}
                               className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
                             >
                               <PlusCircle size={14} className="mr-1" />
@@ -1754,10 +1875,11 @@
                                         取消
                                       </button>
                                       <button 
-                                        onClick={handleSaveEdit}
+                                        onClick={() => { void handleSaveEdit(); }}
+                                        disabled={aiModelsSaving}
                                         className={`px-3 py-1.5 text-xs font-medium rounded ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
                                       >
-                                        保存
+                                        {aiModelsSaving ? '保存中...' : '保存'}
                                       </button>
                                     </div>
                                   </div>
@@ -1784,8 +1906,9 @@
                                       <div className="flex space-x-1">
                                         {!model.isDefault && (
                                           <button 
-                                            onClick={() => handleSetDefault(model.id)}
-                                            className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                                            onClick={() => { void handleSetDefault(model.id); }}
+                                            disabled={aiModelsSaving}
+                                            className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} disabled:opacity-50`}
                                             aria-label="设为默认"
                                           >
                                             <Check size={14} />
@@ -1800,8 +1923,9 @@
                                         </button>
                                         {aiModels.length > 1 && (
                                           <button 
-                                            onClick={() => handleDeleteModel(model.id)}
-                                            className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700 text-red-400' : 'hover:bg-gray-200 text-red-500'}`}
+                                            onClick={() => { void handleDeleteModel(model.id); }}
+                                            disabled={aiModelsSaving}
+                                            className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700 text-red-400' : 'hover:bg-gray-200 text-red-500'} disabled:opacity-50`}
                                             aria-label="删除"
                                           >
                                             <Trash size={14} />
@@ -1944,59 +2068,294 @@
                             <p>您可以配置多个AI模型用于Kubernetes集群分析。默认模型将用于AI诊断功能。</p>
                             <p>对于OpenAI模型，API基础地址通常为：<code className="px-1 py-0.5 rounded bg-gray-700 text-green-400 text-xs">https://api.openai.com/v1</code></p>
                             <p>对于Anthropic模型，API基础地址通常为：<code className="px-1 py-0.5 rounded bg-gray-700 text-green-400 text-xs">https://api.anthropic.com/v1</code></p>
-                            <p>API密钥将安全存储在本地浏览器中，不会被发送到任何服务器。</p>
+                            <p>模型配置会通过设置接口保存到后端，便于多次刷新后仍可继续使用。</p>
                           </div>
                         </div>
                       )}
 
                       <div className="pt-4 border-t border-gray-700">
                         {activeTab !== 'ai-models' ? (
-                          <>
-                            {activeTab === 'advanced' ? (
-                              <div className={`rounded-lg border px-3 py-3 text-sm ${
-                                theme === 'dark'
-                                  ? 'border-gray-700 bg-gray-800/60 text-gray-300'
-                                  : 'border-gray-200 bg-white text-gray-600'
-                              }`}>
-                                先在左侧卡片中选择集群查看状态。新建或编辑时会弹出配置面板，保存和测试都在面板中完成。
-                              </div>
-                            ) : (
-                              <>
-                                <button 
-                                  onClick={handleSaveSettings}
-                                  disabled={clusterSaving || clusterTesting}
-                                  className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
-                                    theme === 'dark' 
-                                      ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60' 
-                                      : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60'
-                                  }`}
-                                >
-                                  <Save size={16} />
-                                  <span>保存设置</span>
-                                </button>
-                                <button 
-                                  onClick={handleCancelSettings}
-                                  className={`w-full mt-3 py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
-                                    theme === 'dark' 
-                                      ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                                  }`}
-                                >
-                                  <XIcon size={16} />
-                                  <span>取消</span>
-                                </button>
-                              </>
-                            )}
-                          </>
+                          <div className={`rounded-lg border px-3 py-3 text-sm ${
+                            theme === 'dark'
+                              ? 'border-gray-700 bg-gray-800/60 text-gray-300'
+                              : 'border-gray-200 bg-white text-gray-600'
+                          }`}>
+                            {activeTab === 'advanced'
+                              ? '先在左侧卡片中选择集群查看状态。新建或编辑时会弹出配置面板，保存和测试都在面板中完成。'
+                              : activeTab === 'audit'
+                                ? '审计记录已单独拆出模块，支持筛选、分页和按集群过滤查看。'
+                                : '左侧显示的是设置摘要卡片。点击编辑后会弹出独立配置面板，保存时直接调用真实设置接口。'}
+                          </div>
                         ) : (
                           <div className="text-center text-sm opacity-70">
-                            <p>配置会自动保存</p>
+                            <p>{aiModelsSaving ? '正在保存模型配置...' : '模型修改后会立即同步到后端'}</p>
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
                 </motion.div>
+
+                {isSettingsEditorOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                  >
+                    <div
+                      className="absolute inset-0 bg-black bg-opacity-55"
+                      onClick={cancelSettingsEditor}
+                    ></div>
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ duration: 0.22 }}
+                      className={`relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border ${
+                        theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className={`flex items-start justify-between border-b px-6 py-5 ${
+                        theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                      }`}>
+                        <div>
+                          <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                            {settingsEditorMode === 'general'
+                              ? '编辑通用设置'
+                              : settingsEditorMode === 'notifications'
+                                ? '编辑通知设置'
+                                : '编辑外观设置'}
+                          </h3>
+                          <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                            {settingsEditorMode === 'general'
+                              ? '修改主题、语言和刷新策略后保存到设置中心。'
+                              : settingsEditorMode === 'notifications'
+                                ? '通知级别和通知类型会通过真实接口保存。'
+                                : '外观配置会保存为卡片摘要，便于后续继续扩展。'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={cancelSettingsEditor}
+                          className={`rounded-lg p-2 ${
+                            theme === 'dark' ? 'text-gray-400 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                          }`}
+                        >
+                          <XIcon size={18} />
+                        </button>
+                      </div>
+
+                      <div className="overflow-y-auto px-6 py-5">
+                        {settingsEditorMode === 'general' && (
+                          <div className="space-y-5">
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                主题
+                              </label>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                {(['light', 'dark', 'system'] as ThemeOption[]).map((option) => (
+                                  <button
+                                    key={option}
+                                    type="button"
+                                    onClick={() => handleThemeChange(option)}
+                                    className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                                      themeOption === option
+                                        ? theme === 'dark'
+                                          ? 'border-blue-500 bg-blue-500/10 text-white'
+                                          : 'border-blue-300 bg-blue-50 text-blue-700'
+                                        : theme === 'dark'
+                                          ? 'border-gray-700 bg-gray-900/40 text-gray-300'
+                                          : 'border-gray-200 bg-gray-50 text-gray-700'
+                                    }`}
+                                  >
+                                    {themeLabelMap[option]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="grid gap-5 md:grid-cols-2">
+                              <div>
+                                <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  语言
+                                </label>
+                                <select
+                                  value={languageOption}
+                                  onChange={(e) => setLanguageOption(e.target.value as LanguageOption)}
+                                  className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                    theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                  } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                >
+                                  <option value="zh-CN">简体中文</option>
+                                  <option value="en-US">English (US)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  自动刷新间隔（秒）
+                                </label>
+                                <select
+                                  value={autoRefresh}
+                                  onChange={(e) => setAutoRefresh(parseInt(e.target.value, 10))}
+                                  className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                    theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                  } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                >
+                                  <option value={10}>10</option>
+                                  <option value={30}>30</option>
+                                  <option value={60}>60</option>
+                                  <option value={120}>120</option>
+                                  <option value={300}>300</option>
+                                  <option value={0}>禁用</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {settingsEditorMode === 'notifications' && (
+                          <div className="space-y-5">
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                通知级别
+                              </label>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                {(['all', 'critical', 'none'] as NotificationOption[]).map((option) => (
+                                  <button
+                                    key={option}
+                                    type="button"
+                                    onClick={() => setNotificationOption(option)}
+                                    className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                                      notificationOption === option
+                                        ? theme === 'dark'
+                                          ? 'border-blue-500 bg-blue-500/10 text-white'
+                                          : 'border-blue-300 bg-blue-50 text-blue-700'
+                                        : theme === 'dark'
+                                          ? 'border-gray-700 bg-gray-900/40 text-gray-300'
+                                          : 'border-gray-200 bg-gray-50 text-gray-700'
+                                    }`}
+                                  >
+                                    {notificationLevelLabelMap[option]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                通知类型
+                              </label>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                {(['node', 'pod', 'workload'] as NotificationType[]).map((type) => {
+                                  const checked = notificationEnabledTypes.includes(type);
+                                  return (
+                                    <button
+                                      key={type}
+                                      type="button"
+                                      onClick={() => toggleNotificationType(type)}
+                                      className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                                        checked
+                                          ? theme === 'dark'
+                                            ? 'border-blue-500 bg-blue-500/10 text-white'
+                                            : 'border-blue-300 bg-blue-50 text-blue-700'
+                                          : theme === 'dark'
+                                            ? 'border-gray-700 bg-gray-900/40 text-gray-300'
+                                            : 'border-gray-200 bg-gray-50 text-gray-700'
+                                      }`}
+                                    >
+                                      {notificationTypeLabels[type]}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {settingsEditorMode === 'appearance' && (
+                          <div className="space-y-5">
+                            <div className="space-y-3">
+                              {[
+                                { key: 'resource', title: '显示资源使用图表', checked: showResourceUsage, onChange: setShowResourceUsage },
+                                { key: 'events', title: '显示最近事件', checked: showEvents, onChange: setShowEvents },
+                                { key: 'namespace', title: '显示命名空间分布', checked: showNamespaceDistribution, onChange: setShowNamespaceDistribution },
+                              ].map((item) => (
+                                <div key={item.key} className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50'
+                                }`}>
+                                  <span className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-100' : 'text-gray-800'}`}>
+                                    {item.title}
+                                  </span>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={item.checked} onChange={(e) => item.onChange(e.target.checked)} className="sr-only peer" />
+                                    <div className={`h-5 w-9 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                                    <div className="absolute left-1 top-1 h-3 w-3 rounded-full bg-white transition-all peer-checked:translate-x-4"></div>
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                导航栏位置
+                              </label>
+                              <select
+                                value={navigationPosition}
+                                onChange={(e) => setNavigationPosition(e.target.value as NavigationPosition)}
+                                className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                              >
+                                <option value="left">左侧</option>
+                                <option value="top">顶部</option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className={`flex flex-col gap-3 border-t px-6 py-4 sm:flex-row sm:justify-end ${
+                        theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50/70'
+                      }`}>
+                        <button
+                          type="button"
+                          onClick={cancelSettingsEditor}
+                          className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                            theme === 'dark'
+                              ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          <XIcon size={15} className="mr-2" />
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (settingsEditorMode === 'notifications') {
+                              void persistNotificationSettings();
+                              return;
+                            }
+                            void persistSystemSettings();
+                          }}
+                          disabled={settingsSaving !== ''}
+                          className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                            theme === 'dark'
+                              ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60'
+                              : 'bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60'
+                          }`}
+                        >
+                          <Save size={15} className="mr-2" />
+                          {settingsSaving === ''
+                            ? '保存设置'
+                            : settingsEditorMode === 'notifications'
+                              ? '保存通知中...'
+                              : '保存中...'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
 
                 {isClusterEditorOpen && (
                   <motion.div
@@ -2401,10 +2760,11 @@
                           取消
                         </button>
                         <button 
-                          onClick={handleAddModel}
-                          className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-sm font-medium`}
+                          onClick={() => { void handleAddModel(); }}
+                          disabled={aiModelsSaving}
+                          className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-sm font-medium disabled:opacity-60`}
                         >
-                          添加
+                          {aiModelsSaving ? '添加中...' : '添加'}
                         </button>
                       </div>
                     </motion.div>

@@ -73,7 +73,11 @@ export const aiDiagnosisAPI = {
 
 export const settingsAPI = {
   getSettings: "/settings",
+  updateSettings: "/settings",
+  getNotificationSettings: "/settings/notifications",
+  updateNotificationSettings: "/settings/notifications",
   getAIModels: "/settings/ai-models",
+  updateAIModels: "/settings/ai-models",
 };
 
 export const auditAPI = {

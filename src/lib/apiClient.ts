@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 const API_BASE_URL = '/api';
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
-  body?: BodyInit | Record<string, unknown> | null;
+  body?: BodyInit | object | null;
   headers?: Record<string, string>;
   params?: Record<string, string | number | boolean>;
 }

@@ -23,6 +23,7 @@ import (
 
 type handler struct {
 	store             *store.SnapshotStore
+	settingsStore     *store.SettingsStore
 	clusterStore      *store.ClusterStore
 	auditStore        *store.AuditStore
 	k8sManager        *k8s.Manager
@@ -48,6 +49,7 @@ type namedMeta struct {
 
 func NewRouter(
 	snapshotStore *store.SnapshotStore,
+	settingsStore *store.SettingsStore,
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
 	k8sManager *k8s.Manager,
@@ -55,6 +57,7 @@ func NewRouter(
 ) http.Handler {
 	h := &handler{
 		store:             snapshotStore,
+		settingsStore:     settingsStore,
 		clusterStore:      clusterStore,
 		auditStore:        auditStore,
 		k8sManager:        k8sManager,
@@ -147,8 +150,12 @@ func NewRouter(
 	})
 
 	router.Route("/api/settings", func(r chi.Router) {
-		r.Get("/", h.wrap(h.snapshot("settings", "system")))
-		r.Get("/ai-models", h.wrap(h.snapshot("settings", "ai-models")))
+		r.Get("/", h.wrap(h.getSettings))
+		r.Put("/", h.wrap(h.updateSettings))
+		r.Get("/notifications", h.wrap(h.getNotificationSettings))
+		r.Put("/notifications", h.wrap(h.updateNotificationSettings))
+		r.Get("/ai-models", h.wrap(h.getAIModels))
+		r.Put("/ai-models", h.wrap(h.updateAIModels))
 	})
 
 	router.Route("/api/ai-diagnosis", func(r chi.Router) {
@@ -478,6 +485,129 @@ func (h *handler) listAuditLogs(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) error {
+	settings, err := h.currentSystemSettings(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, settings)
+	return nil
+}
+
+func (h *handler) updateSettings(w http.ResponseWriter, r *http.Request) error {
+	settings, err := h.currentSystemSettings(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var payload systemSettingsPayload
+	if err := decodeJSON(r, &payload); err != nil {
+		return newHTTPError(http.StatusBadRequest, "无效的请求参数")
+	}
+
+	merged := mergeSystemSettings(settings, payload)
+	normalized, err := normalizeSystemSettings(merged)
+	if err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err := h.saveSystemSettings(r.Context(), normalized); err != nil {
+		return err
+	}
+
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "settings.update",
+		ResourceType: "settings",
+		ResourceName: "system",
+		Status:       store.AuditStatusSuccess,
+		Message:      "System settings updated",
+	})
+
+	writeJSON(w, http.StatusOK, normalized)
+	return nil
+}
+
+func (h *handler) getNotificationSettings(w http.ResponseWriter, r *http.Request) error {
+	settings, err := h.currentSystemSettings(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, settings.Notifications)
+	return nil
+}
+
+func (h *handler) updateNotificationSettings(w http.ResponseWriter, r *http.Request) error {
+	settings, err := h.currentSystemSettings(r.Context())
+	if err != nil {
+		return err
+	}
+
+	var payload notificationSettingsPayload
+	if err := decodeJSON(r, &payload); err != nil {
+		return newHTTPError(http.StatusBadRequest, "无效的请求参数")
+	}
+
+	settings.Notifications = mergeNotificationSettings(settings.Notifications, payload)
+	normalized, err := normalizeSystemSettings(settings)
+	if err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err := h.saveSystemSettings(r.Context(), normalized); err != nil {
+		return err
+	}
+
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "settings.notifications.update",
+		ResourceType: "settings",
+		ResourceName: "notifications",
+		Status:       store.AuditStatusSuccess,
+		Message:      "Notification settings updated",
+	})
+
+	writeJSON(w, http.StatusOK, normalized.Notifications)
+	return nil
+}
+
+func (h *handler) getAIModels(w http.ResponseWriter, r *http.Request) error {
+	models, err := h.currentAIModels(r.Context())
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, models)
+	return nil
+}
+
+func (h *handler) updateAIModels(w http.ResponseWriter, r *http.Request) error {
+	var payload []aiModelPayload
+	if err := decodeJSON(r, &payload); err != nil {
+		return newHTTPError(http.StatusBadRequest, "无效的请求参数")
+	}
+
+	models, err := normalizeAIModels(payload)
+	if err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err := h.saveAIModels(r.Context(), models); err != nil {
+		return err
+	}
+
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "settings.ai-models.update",
+		ResourceType: "settings",
+		ResourceName: "ai-models",
+		Status:       store.AuditStatusSuccess,
+		Message:      "AI model settings updated",
+		Details: map[string]any{
+			"count": len(models),
+		},
+	})
+
+	writeJSON(w, http.StatusOK, models)
 	return nil
 }
 
@@ -1314,6 +1444,47 @@ type clusterResponse struct {
 	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
+type notificationSettingsDocument struct {
+	Level        string   `json:"level"`
+	EnabledTypes []string `json:"enabledTypes"`
+}
+
+type systemSettingsDocument struct {
+	Theme                     string                       `json:"theme"`
+	Language                  string                       `json:"language"`
+	AutoRefreshInterval       int                          `json:"autoRefreshInterval"`
+	ShowResourceUsage         bool                         `json:"showResourceUsage"`
+	ShowEvents                bool                         `json:"showEvents"`
+	ShowNamespaceDistribution bool                         `json:"showNamespaceDistribution"`
+	NavigationPosition        string                       `json:"navigationPosition"`
+	Notifications             notificationSettingsDocument `json:"notifications"`
+}
+
+type systemSettingsPayload struct {
+	Theme                     *string                      `json:"theme"`
+	Language                  *string                      `json:"language"`
+	AutoRefreshInterval       *int                         `json:"autoRefreshInterval"`
+	ShowResourceUsage         *bool                        `json:"showResourceUsage"`
+	ShowEvents                *bool                        `json:"showEvents"`
+	ShowNamespaceDistribution *bool                        `json:"showNamespaceDistribution"`
+	NavigationPosition        *string                      `json:"navigationPosition"`
+	Notifications             *notificationSettingsPayload `json:"notifications"`
+}
+
+type notificationSettingsPayload struct {
+	Level        string   `json:"level"`
+	EnabledTypes []string `json:"enabledTypes"`
+}
+
+type aiModelPayload struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	APIBaseURL string `json:"apiBaseUrl"`
+	APIKey     string `json:"apiKey"`
+	ModelType  string `json:"modelType"`
+	IsDefault  bool   `json:"isDefault"`
+}
+
 type workloadScalePayload struct {
 	Replicas *int32 `json:"replicas"`
 }
@@ -1421,6 +1592,276 @@ func mergeClusterPayload(existing *store.Cluster, payload clusterPayload) (store
 	}
 
 	return cluster, nil
+}
+
+func defaultSystemSettings() systemSettingsDocument {
+	return systemSettingsDocument{
+		Theme:                     "system",
+		Language:                  "zh-CN",
+		AutoRefreshInterval:       30,
+		ShowResourceUsage:         true,
+		ShowEvents:                true,
+		ShowNamespaceDistribution: true,
+		NavigationPosition:        "left",
+		Notifications: notificationSettingsDocument{
+			Level:        "all",
+			EnabledTypes: []string{"node", "pod", "workload"},
+		},
+	}
+}
+
+func defaultAIModels() []aiModelPayload {
+	return []aiModelPayload{
+		{
+			ID:         "openai-gpt4o",
+			Name:       "OpenAI GPT-4o",
+			APIBaseURL: "https://api.openai.com/v1",
+			APIKey:     "",
+			ModelType:  "openai",
+			IsDefault:  true,
+		},
+		{
+			ID:         "anthropic-claude3",
+			Name:       "Anthropic Claude 3",
+			APIBaseURL: "https://api.anthropic.com/v1",
+			APIKey:     "",
+			ModelType:  "anthropic",
+			IsDefault:  false,
+		},
+	}
+}
+
+func mergeSystemSettings(base systemSettingsDocument, payload systemSettingsPayload) systemSettingsDocument {
+	if payload.Theme != nil {
+		base.Theme = *payload.Theme
+	}
+	if payload.Language != nil {
+		base.Language = *payload.Language
+	}
+	if payload.AutoRefreshInterval != nil {
+		base.AutoRefreshInterval = *payload.AutoRefreshInterval
+	}
+	if payload.ShowResourceUsage != nil {
+		base.ShowResourceUsage = *payload.ShowResourceUsage
+	}
+	if payload.ShowEvents != nil {
+		base.ShowEvents = *payload.ShowEvents
+	}
+	if payload.ShowNamespaceDistribution != nil {
+		base.ShowNamespaceDistribution = *payload.ShowNamespaceDistribution
+	}
+	if payload.NavigationPosition != nil {
+		base.NavigationPosition = *payload.NavigationPosition
+	}
+	if payload.Notifications != nil {
+		base.Notifications = mergeNotificationSettings(base.Notifications, *payload.Notifications)
+	}
+	return base
+}
+
+func mergeNotificationSettings(base notificationSettingsDocument, payload notificationSettingsPayload) notificationSettingsDocument {
+	base.Level = payload.Level
+	base.EnabledTypes = payload.EnabledTypes
+	return base
+}
+
+func normalizeSystemSettings(input systemSettingsDocument) (systemSettingsDocument, error) {
+	settings := defaultSystemSettings()
+	if trimmed := strings.TrimSpace(input.Theme); trimmed != "" {
+		settings.Theme = trimmed
+	}
+	if trimmed := strings.TrimSpace(input.Language); trimmed != "" {
+		settings.Language = trimmed
+	}
+	settings.AutoRefreshInterval = input.AutoRefreshInterval
+	settings.ShowResourceUsage = input.ShowResourceUsage
+	settings.ShowEvents = input.ShowEvents
+	settings.ShowNamespaceDistribution = input.ShowNamespaceDistribution
+	if trimmed := strings.TrimSpace(input.NavigationPosition); trimmed != "" {
+		settings.NavigationPosition = trimmed
+	}
+	notifications, err := normalizeNotificationSettings(input.Notifications)
+	if err != nil {
+		return systemSettingsDocument{}, err
+	}
+	settings.Notifications = notifications
+
+	switch settings.Theme {
+	case "light", "dark", "system":
+	default:
+		return systemSettingsDocument{}, fmt.Errorf("unsupported theme: %s", settings.Theme)
+	}
+
+	if settings.Language == "" {
+		return systemSettingsDocument{}, fmt.Errorf("language is required")
+	}
+	if settings.AutoRefreshInterval < 0 {
+		return systemSettingsDocument{}, fmt.Errorf("autoRefreshInterval must be greater than or equal to 0")
+	}
+
+	switch settings.NavigationPosition {
+	case "left", "top":
+	default:
+		return systemSettingsDocument{}, fmt.Errorf("unsupported navigationPosition: %s", settings.NavigationPosition)
+	}
+
+	return settings, nil
+}
+
+func normalizeNotificationSettings(input notificationSettingsDocument) (notificationSettingsDocument, error) {
+	settings := notificationSettingsDocument{
+		Level:        strings.TrimSpace(input.Level),
+		EnabledTypes: make([]string, 0, len(input.EnabledTypes)),
+	}
+
+	if settings.Level == "" {
+		settings.Level = "all"
+	}
+	switch settings.Level {
+	case "all", "critical", "none":
+	default:
+		return notificationSettingsDocument{}, fmt.Errorf("unsupported notification level: %s", settings.Level)
+	}
+
+	seen := map[string]struct{}{}
+	for _, item := range input.EnabledTypes {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		switch value {
+		case "node", "pod", "workload":
+		default:
+			return notificationSettingsDocument{}, fmt.Errorf("unsupported notification type: %s", value)
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		settings.EnabledTypes = append(settings.EnabledTypes, value)
+	}
+
+	if len(settings.EnabledTypes) == 0 {
+		settings.EnabledTypes = []string{"node", "pod", "workload"}
+	}
+
+	return settings, nil
+}
+
+func normalizeAIModels(input []aiModelPayload) ([]aiModelPayload, error) {
+	if len(input) == 0 {
+		return nil, fmt.Errorf("at least one AI model is required")
+	}
+
+	models := make([]aiModelPayload, 0, len(input))
+	seenIDs := map[string]struct{}{}
+	defaultAssigned := false
+
+	for _, item := range input {
+		model := aiModelPayload{
+			ID:         strings.TrimSpace(item.ID),
+			Name:       strings.TrimSpace(item.Name),
+			APIBaseURL: strings.TrimSpace(item.APIBaseURL),
+			APIKey:     strings.TrimSpace(item.APIKey),
+			ModelType:  strings.TrimSpace(item.ModelType),
+			IsDefault:  item.IsDefault,
+		}
+
+		if model.ID == "" {
+			return nil, fmt.Errorf("model id is required")
+		}
+		if model.Name == "" {
+			return nil, fmt.Errorf("model name is required")
+		}
+		if model.APIBaseURL == "" {
+			return nil, fmt.Errorf("model apiBaseUrl is required")
+		}
+		if model.ModelType == "" {
+			model.ModelType = "other"
+		}
+		if _, ok := seenIDs[model.ID]; ok {
+			return nil, fmt.Errorf("duplicate model id: %s", model.ID)
+		}
+		seenIDs[model.ID] = struct{}{}
+
+		if model.IsDefault {
+			if defaultAssigned {
+				model.IsDefault = false
+			} else {
+				defaultAssigned = true
+			}
+		}
+
+		models = append(models, model)
+	}
+
+	if !defaultAssigned {
+		models[0].IsDefault = true
+	}
+
+	return models, nil
+}
+
+func (h *handler) currentSystemSettings(ctx context.Context) (systemSettingsDocument, error) {
+	raw, err := h.readSettingsPayload(ctx, store.SettingsKeySystem)
+	if err != nil {
+		return systemSettingsDocument{}, err
+	}
+	if len(raw) == 0 {
+		return defaultSystemSettings(), nil
+	}
+
+	var settings systemSettingsDocument
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return systemSettingsDocument{}, err
+	}
+
+	return normalizeSystemSettings(settings)
+}
+
+func (h *handler) saveSystemSettings(ctx context.Context, settings systemSettingsDocument) error {
+	if h.settingsStore != nil {
+		return h.settingsStore.Put(ctx, store.SettingsKeySystem, settings)
+	}
+	return nil
+}
+
+func (h *handler) currentAIModels(ctx context.Context) ([]aiModelPayload, error) {
+	raw, err := h.readSettingsPayload(ctx, store.SettingsKeyAIModels)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return defaultAIModels(), nil
+	}
+
+	var models []aiModelPayload
+	if err := json.Unmarshal(raw, &models); err != nil {
+		return nil, err
+	}
+
+	return normalizeAIModels(models)
+}
+
+func (h *handler) saveAIModels(ctx context.Context, models []aiModelPayload) error {
+	if h.settingsStore != nil {
+		return h.settingsStore.Put(ctx, store.SettingsKeyAIModels, models)
+	}
+	return nil
+}
+
+func (h *handler) readSettingsPayload(ctx context.Context, key string) (json.RawMessage, error) {
+	if h.settingsStore != nil {
+		payload, err := h.settingsStore.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if payload != nil {
+			return payload, nil
+		}
+	}
+
+	return h.store.Get(ctx, "settings", key)
 }
 
 func toClusterResponse(cluster store.Cluster) clusterResponse {

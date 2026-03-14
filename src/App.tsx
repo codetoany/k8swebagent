@@ -18,7 +18,7 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
-  const login = (username: string, password: string) => {
+  const login = (username: string, password: string): boolean => {
     // 简化的登录逻辑，实际应用中应该有更复杂的认证流程
     if (username && password) {
       setIsAuthenticated(true);

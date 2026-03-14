@@ -1,230 +1,103 @@
-/// <reference lib="dom" />
-// API客户端，用于处理HTTP请求
-
 import { toast } from 'sonner';
 
-// 定义RequestInit类型以确保TypeScript正确识别
-interface RequestInit {
-  method?: string;
-  headers?: Headers | Record<string, string>;
-  body?: BodyInit | null;
-  mode?: string;
-  credentials?: string;
-  cache?: string;
-  redirect?: string;
-  referrerPolicy?: string;
-  integrity?: string;
-  keepalive?: boolean;
-  signal?: AbortSignal;
-}
-
-// API基础URL
 const API_BASE_URL = '/api';
 
-// 请求配置接口
 interface RequestOptions extends Omit<RequestInit, 'body'> {
-  body?: any;
+  body?: BodyInit | Record<string, unknown> | null;
   headers?: Record<string, string>;
   params?: Record<string, string | number | boolean>;
 }
 
-// 错误处理
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-// 构建完整URL
 function buildUrl(endpoint: string, params?: Record<string, string | number | boolean>): string {
-  let url = `${API_BASE_URL}${endpoint}`;
-  
-  // 处理URL参数
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = new URL(`${API_BASE_URL}${normalizedEndpoint}`, window.location.origin);
+
   if (params) {
-    const searchParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
+    Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
-        searchParams.append(key, String(value));
+        url.searchParams.set(key, String(value));
       }
-    }
-    const paramsString = searchParams.toString();
-    if (paramsString) {
-      url += `?${paramsString}`;
-    }
+    });
   }
-  
-  return url;
+
+  return `${url.pathname}${url.search}`;
 }
 
-// 处理响应
-async function handleResponse(response: Response): Promise<any> {
+async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, errorData.message || `API请求失败: ${response.status}`);
+    const errorData = await response.json().catch(() => ({} as { message?: string }));
+    throw new ApiError(response.status, errorData.message || `API request failed: ${response.status}`);
   }
-  
-  // 处理空响应
+
   if (response.status === 204) {
-    return null;
+    return null as T;
   }
-  
-  return response.json();
+
+  return response.json() as Promise<T>;
 }
 
-// 基本请求函数
-async function request<T = any>(
-  endpoint: string,
-  options: RequestOptions = {}
-): Promise<T> {
+async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   try {
-    // 合并默认头信息
-    const headers = {
-      'Content-Type': 'application/json',
+    const headers: Record<string, string> = {
       ...options.headers,
     };
-    
-    // 添加认证token
+
     const token = localStorage.getItem('authToken');
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      headers.Authorization = `Bearer ${token}`;
     }
-    
-    // 构建请求配置
+
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    if (!isFormData && options.body !== undefined && options.body !== null) {
+      headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
+    }
+
     const requestConfig: RequestInit = {
       ...options,
       headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      body: isFormData
+        ? (options.body as BodyInit)
+        : options.body !== undefined && options.body !== null
+          ? JSON.stringify(options.body)
+          : undefined,
     };
-    
-    // 发送请求
-    const url = buildUrl(endpoint, options.params);
-    const response = await fetch(url, requestConfig);
-    
-    // 处理响应
-    return await handleResponse(response);
+
+    const response = await fetch(buildUrl(endpoint, options.params), requestConfig);
+    return handleResponse<T>(response);
   } catch (error) {
-    // 处理网络错误
-    if (error instanceof Error) {
-      toast.error(error.message);
-    } else {
-      toast.error('网络请求失败，请检查您的连接');
-    }
-    
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    toast.error(message);
     throw error;
   }
 }
 
-// API客户端
 const apiClient = {
-  // GET请求
-  get<T = any>(
-    endpoint: string,
-    params?: Record<string, string | number | boolean>,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    return request<T>(endpoint, {
-      ...options,
-      method: 'GET',
-      params,
-    });
+  get<T>(endpoint: string, params?: Record<string, string | number | boolean>, options: Omit<RequestOptions, 'method' | 'body' | 'params'> = {}) {
+    return request<T>(endpoint, { ...options, method: 'GET', params });
   },
-  
-  // POST请求
-  post<T = any>(
-    endpoint: string,
-    body?: any,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    return request<T>(endpoint, {
-      ...options,
-      method: 'POST',
-      body,
-    });
+
+  post<T>(endpoint: string, body?: RequestOptions['body'], options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return request<T>(endpoint, { ...options, method: 'POST', body });
   },
-  
-  // PUT请求
-  put<T = any>(
-    endpoint: string,
-    body?: any,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    return request<T>(endpoint, {
-      ...options,
-      method: 'PUT',
-      body,
-    });
+
+  put<T>(endpoint: string, body?: RequestOptions['body'], options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return request<T>(endpoint, { ...options, method: 'PUT', body });
   },
-  
-  // PATCH请求
-  patch<T = any>(
-    endpoint: string,
-    body?: any,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    return request<T>(endpoint, {
-      ...options,
-      method: 'PATCH',
-      body,
-    });
+
+  patch<T>(endpoint: string, body?: RequestOptions['body'], options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return request<T>(endpoint, { ...options, method: 'PATCH', body });
   },
-  
-  // DELETE请求
-  delete<T = any>(
-    endpoint: string,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    return request<T>(endpoint, {
-      ...options,
-      method: 'DELETE',
-    });
-  },
-  
-  // 上传文件
-  upload<T = any>(
-    endpoint: string,
-    file: File,
-    options: Omit<RequestOptions, 'method' | 'body'> = {}
-  ): Promise<T> {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    return request<T>(endpoint, {
-      ...options,
-      method: 'POST',
-      body: formData,
-      headers: {
-        ...options.headers,
-        // 不需要Content-Type，浏览器会自动设置
-      },
-    });
-  },
-  
-  // 下载文件
-  download(
-    endpoint: string,
-    filename?: string,
-    params?: Record<string, string | number | boolean>
-  ): void {
-    const url = buildUrl(endpoint, params);
-    const link = document.createElement('a');
-    link.href = url;
-    
-    // 添加认证token到URL
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      link.href += (link.href.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
-    }
-    
-    if (filename) {
-      link.download = filename;
-    }
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+  delete<T>(endpoint: string, options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return request<T>(endpoint, { ...options, method: 'DELETE' });
   },
 };
 
 export default apiClient;
-export { ApiError };

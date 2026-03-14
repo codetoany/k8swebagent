@@ -789,7 +789,9 @@
     
     // 添加AI模型
     const handleAddModel = async () => {
-      if (!newModel.name || !newModel.apiBaseUrl) {
+      if (!newModel.id || !newModel.name || !newModel.apiBaseUrl) {
+        toast('请填写模型标识、模型名称和 API 地址');
+        return;
         toast('请填写模型名称和API基础地址');
         return;
       }
@@ -803,7 +805,10 @@
       
       const modelToAdd = {
         ...newModel,
-        id: newModel.id || `model-${Date.now()}`,
+        id: newModel.id.trim(),
+        name: newModel.name.trim(),
+        apiBaseUrl: newModel.apiBaseUrl.trim(),
+        apiKey: newModel.apiKey.trim(),
       };
       
       updatedModels.push(modelToAdd);
@@ -829,17 +834,27 @@
     
     // 保存编辑的模型
     const handleSaveEdit = async () => {
-      if (!editingModel || !editingModel.name || !editingModel.apiBaseUrl) {
+      if (!editingModel || !editingModel.id || !editingModel.name || !editingModel.apiBaseUrl) {
+        toast('请填写模型标识、模型名称和 API 地址');
+        return;
         toast('请填写模型名称和API基础地址');
         return;
       }
       
+      const normalizedEditingModel = {
+        ...editingModel,
+        id: editingModel.id.trim(),
+        name: editingModel.name.trim(),
+        apiBaseUrl: editingModel.apiBaseUrl.trim(),
+        apiKey: editingModel.apiKey.trim(),
+      };
+
       const updatedModels = aiModels.map(model => {
         if (model.id === editingModel.id) {
-          return editingModel;
+          return normalizedEditingModel;
         }
         // 如果编辑的模型设置为默认，取消其他模型的默认状态
-        if (editingModel.isDefault) {
+        if (normalizedEditingModel.isDefault) {
           return {...model, isDefault: false};
         }
         return model;
@@ -1808,6 +1823,17 @@
                                   <div className="space-y-3">
                                     <div>
                                       <label className={`block text-xs mb-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        模型标识
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editingModel.id}
+                                        onChange={(e) => setEditingModel({...editingModel, id: e.target.value})}
+                                        className={`w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className={`block text-xs mb-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                                         模型名称
                                       </label>
                                       <input
@@ -1894,6 +1920,9 @@
                                             </span>
                                           )}
                                         </h4>
+                                        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                          模型标识: {model.id}
+                                        </p>
                                         <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                                           API 地址: {model.apiBaseUrl}
                                         </p>
@@ -2677,6 +2706,21 @@
                     >
                       <h3 className="text-lg font-bold mb-4">添加 AI 模型</h3>
                       <div className="space-y-4">
+                        <div>
+                          <label className={`block text-sm font-medium mb-1 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                            模型标识
+                          </label>
+                          <input
+                            type="text"
+                            value={newModel.id}
+                            onChange={(e) => setNewModel({...newModel, id: e.target.value})}
+                            placeholder="例如：grok-4.1-fast"
+                            className={`w-full px-3 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                          />
+                          <p className={`mt-1 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                            这里填写真实的大模型标识，也就是请求里的 model 字段。
+                          </p>
+                        </div>
                         <div>
                           <label className={`block text-sm font-medium mb-1 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                             模型名称

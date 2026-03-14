@@ -69,6 +69,9 @@ export const clustersAPI = {
 export const aiDiagnosisAPI = {
   getNodeStatus: "/ai-diagnosis/node-status",
   getDiagnosisHistory: "/ai-diagnosis/history",
+  getConversationDetail: "/ai-diagnosis/history/:id",
+  deleteConversation: "/ai-diagnosis/history/:id",
+  sendMessage: "/ai-diagnosis/chat",
 };
 
 export const settingsAPI = {

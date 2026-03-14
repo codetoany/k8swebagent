@@ -31,20 +31,12 @@ var defaultSettingsPayloads = map[string]json.RawMessage{
 }`),
 	SettingsKeyAIModels: json.RawMessage(`[
   {
-    "id": "openai-gpt4o",
-    "name": "OpenAI GPT-4o",
-    "apiBaseUrl": "https://api.openai.com/v1",
+    "id": "grok-4.1-fast",
+    "name": "Grok 4.1 Fast",
+    "apiBaseUrl": "http://66.154.105.107:8000/v1",
     "apiKey": "",
     "modelType": "openai",
     "isDefault": true
-  },
-  {
-    "id": "anthropic-claude3",
-    "name": "Anthropic Claude 3",
-    "apiBaseUrl": "https://api.anthropic.com/v1",
-    "apiKey": "",
-    "modelType": "anthropic",
-    "isDefault": false
   }
 ]`),
 	SettingsKeyNotificationsState: json.RawMessage(`{

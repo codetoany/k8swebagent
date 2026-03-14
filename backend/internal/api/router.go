@@ -26,6 +26,7 @@ type handler struct {
 	settingsStore     *store.SettingsStore
 	clusterStore      *store.ClusterStore
 	auditStore        *store.AuditStore
+	aiHistoryStore    *store.AIConversationStore
 	k8sManager        *k8s.Manager
 	redisCache        *cache.RedisCache
 	dashboardService  *service.DashboardService
@@ -33,6 +34,7 @@ type handler struct {
 	podsService       *service.PodsService
 	workloadsService  *service.WorkloadsService
 	namespacesService *service.NamespacesService
+	llmClient         *llmClient
 }
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -52,6 +54,7 @@ func NewRouter(
 	settingsStore *store.SettingsStore,
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
+	aiHistoryStore *store.AIConversationStore,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
 ) http.Handler {
@@ -60,6 +63,7 @@ func NewRouter(
 		settingsStore:     settingsStore,
 		clusterStore:      clusterStore,
 		auditStore:        auditStore,
+		aiHistoryStore:    aiHistoryStore,
 		k8sManager:        k8sManager,
 		redisCache:        redisCache,
 		dashboardService:  service.NewDashboardService(snapshotStore, k8sManager),
@@ -67,6 +71,7 @@ func NewRouter(
 		podsService:       service.NewPodsService(snapshotStore, k8sManager),
 		workloadsService:  service.NewWorkloadsService(snapshotStore, k8sManager),
 		namespacesService: service.NewNamespacesService(snapshotStore, k8sManager),
+		llmClient:         newLLMClient(90 * time.Second),
 	}
 
 	router := chi.NewRouter()
@@ -164,8 +169,11 @@ func NewRouter(
 	})
 
 	router.Route("/api/ai-diagnosis", func(r chi.Router) {
-		r.Get("/history", h.wrap(h.snapshot("ai-diagnosis", "history")))
-		r.Get("/node-status", h.wrap(h.snapshot("ai-diagnosis", "node-status")))
+		r.Get("/history", h.wrap(h.listAIDiagnosisHistory))
+		r.Get("/history/{id}", h.wrap(h.getAIDiagnosisConversation))
+		r.Delete("/history/{id}", h.wrap(h.deleteAIDiagnosisConversation))
+		r.Post("/chat", h.wrap(h.aiDiagnosisChat))
+		r.Get("/node-status", h.wrap(h.aiDiagnosisNodeStatus))
 	})
 
 	return router
@@ -1698,20 +1706,12 @@ func defaultSystemSettings() systemSettingsDocument {
 func defaultAIModels() []aiModelPayload {
 	return []aiModelPayload{
 		{
-			ID:         "openai-gpt4o",
-			Name:       "OpenAI GPT-4o",
-			APIBaseURL: "https://api.openai.com/v1",
+			ID:         "grok-4.1-fast",
+			Name:       "Grok 4.1 Fast",
+			APIBaseURL: "http://66.154.105.107:8000/v1",
 			APIKey:     "",
 			ModelType:  "openai",
 			IsDefault:  true,
-		},
-		{
-			ID:         "anthropic-claude3",
-			Name:       "Anthropic Claude 3",
-			APIBaseURL: "https://api.anthropic.com/v1",
-			APIKey:     "",
-			ModelType:  "anthropic",
-			IsDefault:  false,
 		},
 	}
 }

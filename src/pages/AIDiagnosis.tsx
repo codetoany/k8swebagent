@@ -1,367 +1,437 @@
-import { useState, useEffect, useRef } from 'react';
+import { type KeyboardEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Server, BarChart3, Database, Network, Settings, LogOut, 
-  Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
-  RefreshCw, PlusCircle, MoreVertical, Filter, Download,
-  AlertCircle, CheckCircle, ArrowUpDown, Eye, Package, 
-  MessageCircle, Brain, Zap, Clock, FileText, Send,
-  History, Trash2, HelpCircle, User
+import {
+  AlertCircle,
+  BarChart3,
+  Brain,
+  Clock,
+  Database,
+  History,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Moon,
+  Network,
+  Package,
+  PlusCircle,
+  RefreshCw,
+  Send,
+  Server,
+  Settings,
+  Sun,
+  Trash2,
+  User,
+  X,
 } from 'lucide-react';
-import { useThemeContext } from '@/contexts/themeContext';
-import { useContext } from 'react';
-import { AuthContext } from '@/contexts/authContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
+import { AuthContext } from '@/contexts/authContext';
+import { useThemeContext } from '@/contexts/themeContext';
+import { useClusterContext } from '@/contexts/clusterContext';
+import apiClient from '@/lib/apiClient';
+import { aiDiagnosisAPI, replacePathParams } from '@/lib/api';
+import ClusterSelector from '@/components/ClusterSelector';
 import NotificationCenter from '@/components/NotificationCenter';
 
-// 消息类型定义
-interface Message {
+type ConversationRole = 'user' | 'assistant';
+
+interface AIConversationMessage {
   id: string;
-  text: string;
-  sender: 'user' | 'ai';
-  timestamp: Date;
-  isProcessing?: boolean;
+  role: ConversationRole;
+  content: string;
+  createdAt: string;
 }
 
-// 诊断历史记录类型
-interface DiagnosisHistory {
+interface AIConversation {
   id: string;
   title: string;
-  date: Date;
   summary: string;
+  clusterId?: string;
+  clusterName?: string;
+  modelId?: string;
+  modelName?: string;
+  createdAt: string;
+  updatedAt: string;
+  messages?: AIConversationMessage[];
 }
 
-  const AIDiagnosis = () => {
-    const { theme, toggleTheme } = useThemeContext();
+interface AIClusterOverview {
+  totalNodes: number;
+  onlineNodes: number;
+  offlineNodes: number;
+  totalPods: number;
+  runningPods: number;
+  failedPods: number;
+  pausedPods: number;
+  totalWorkloads: number;
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+}
+
+interface AIClusterNodeSummary {
+  name: string;
+  status: string;
+  schedulable: boolean;
+  cpuUsage: number;
+  memoryUsage: number;
+  pods: number;
+  ip: string;
+}
+
+interface AIClusterPodSummary {
+  namespace: string;
+  name: string;
+  status: string;
+  node: string;
+}
+
+interface AIClusterWorkloadSummary {
+  scope: string;
+  namespace: string;
+  name: string;
+  ready: number;
+  desired: number;
+  available: number;
+  paused: boolean;
+}
+
+interface AIClusterStatus {
+  clusterId?: string;
+  clusterName: string;
+  connectionState: string;
+  source: 'live' | 'snapshot';
+  overview: AIClusterOverview;
+  nodeHighlights: AIClusterNodeSummary[];
+  problemPods: AIClusterPodSummary[];
+  workloadAlerts: AIClusterWorkloadSummary[];
+  generatedAt: string;
+}
+
+interface AIChatResponse {
+  conversation: AIConversation;
+  cluster: AIClusterStatus;
+}
+
+const suggestionPrompts = [
+  '分析当前集群的整体健康状况',
+  '排查异常 Pod 的可能原因',
+  '给出资源优化和扩缩容建议',
+  '总结当前最需要关注的风险点',
+  '根据当前状态生成运维检查清单',
+];
+
+function createWelcomeMessage(clusterName: string): AIConversationMessage[] {
+  const displayClusterName = clusterName || '默认诊断上下文';
+  return [
+    {
+      id: 'welcome-message',
+      role: 'assistant',
+      content: `你好，我是 K8s Agent AI 诊断助手。当前分析集群：${displayClusterName}。\n\n你可以直接问我：\n1. 集群现在是否健康\n2. 哪些节点或 Pod 需要优先关注\n3. 资源是否存在浪费或瓶颈\n4. 某个工作负载为什么不稳定\n\n我会结合当前集群上下文给出诊断结论、风险判断和下一步建议。`,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
+function formatConversationTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--';
+  }
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getConnectionMeta(status: string, theme: 'light' | 'dark') {
+  const palette =
+    theme === 'dark'
+      ? {
+          success: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+          warning: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+          danger: 'bg-rose-500/15 text-rose-300 border border-rose-500/30',
+          neutral: 'bg-slate-500/15 text-slate-300 border border-slate-500/30',
+        }
+      : {
+          success: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+          warning: 'bg-amber-50 text-amber-700 border border-amber-200',
+          danger: 'bg-rose-50 text-rose-700 border border-rose-200',
+          neutral: 'bg-slate-100 text-slate-700 border border-slate-200',
+        };
+
+  switch (status) {
+    case 'connected':
+      return { label: '已连接', badgeClass: palette.success };
+    case 'error':
+      return { label: '连接异常', badgeClass: palette.danger };
+    case 'not_configured':
+      return { label: '未配置真实集群', badgeClass: palette.warning };
+    default:
+      return { label: '状态未知', badgeClass: palette.neutral };
+  }
+}
+
+export default function AIDiagnosis() {
+  const { theme, toggleTheme } = useThemeContext();
   const { logout } = useContext(AuthContext);
+  const { enabledClusters, selectedCluster, selectedClusterId, setSelectedClusterId, loading: clusterLoading } = useClusterContext();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputMessage, setInputMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [refreshingCluster, setRefreshingCluster] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'history'>('chat');
-  const [diagnosisHistory, setDiagnosisHistory] = useState<DiagnosisHistory[]>([]);
-  const [isSending, setIsSending] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // 初始化演示数据
-  useEffect(() => {
-    setDiagnosisHistory([
-      {
-        id: '1',
-        title: '节点资源使用率分析',
-        date: new Date(Date.now() - 86400000),
-        summary: '分析了集群中节点的CPU和内存使用率，发现 node-1 和 node-2 负载较高'
-      },
-      {
-        id: '2',
-        title: 'Pod 失败原因分析',
-        date: new Date(Date.now() - 172800000),
-        summary: '分析了 broken-pod-456ij 失败的原因，发现是容器镜像拉取失败导致的'
-      },
-      {
-        id: '3',
-        title: '工作负载优化建议',
-        date: new Date(Date.now() - 259200000),
-        summary: '为 web-app 和 api-server 提供了资源分配优化建议'
-      }
-    ]);
+  const [currentConversationId, setCurrentConversationId] = useState('');
+  const [conversations, setConversations] = useState<AIConversation[]>([]);
+  const [messages, setMessages] = useState<AIConversationMessage[]>(createWelcomeMessage('默认诊断上下文'));
+  const [clusterStatus, setClusterStatus] = useState<AIClusterStatus | null>(null);
+  const [inputMessage, setInputMessage] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-    setMessages([
-      {
-        id: 'welcome',
-        text: '你好！我是 Kubernetes AI 助手，可以帮助你分析集群状态、诊断问题并提供优化建议。请告诉我你需要什么帮助？',
-        sender: 'ai',
-        timestamp: new Date()
-      }
-    ]);
-  }, []);
-  
-  // 自动滚动到最新消息
+  const isDark = theme === 'dark';
+  const connectionMeta = getConnectionMeta(clusterStatus?.connectionState || 'unknown', theme);
+  const welcomeClusterName = clusterStatus?.clusterName || selectedCluster?.name || '默认诊断上下文';
+
+  const currentConversation = useMemo(
+    () => conversations.find((item) => item.id === currentConversationId) || null,
+    [conversations, currentConversationId],
+  );
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, sending]);
 
-  // 处理登出
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initialize() {
+      setLoading(true);
+      setCurrentConversationId('');
+      setMessages(createWelcomeMessage(selectedCluster?.name || '默认诊断上下文'));
+
+      try {
+        const [history, status] = await Promise.all([
+          apiClient.get<AIConversation[]>(aiDiagnosisAPI.getDiagnosisHistory, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
+          apiClient.get<AIClusterStatus>(aiDiagnosisAPI.getNodeStatus, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setConversations(history);
+        setClusterStatus(status);
+        setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCluster?.name, selectedClusterId]);
+
   const handleLogout = () => {
     logout();
     navigate('/');
   };
 
-  // 导航到其他页面
   const navigateTo = (path: string) => {
     navigate(path);
-    if (window.innerWidth < 768) {
+    if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
   };
 
-  // 渲染导航项
-  const renderNavItem = (icon: React.ReactNode, label: string, path: string) => {
+  const navItem = (icon: ReactNode, label: string, path: string) => {
     const active = location.pathname === path;
-
     return (
-    <motion.div 
-      className={`flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer transition-all duration-300
-        ${active 
-          ? theme === 'dark' 
-            ? 'bg-blue-900/30 text-blue-400' 
-            : 'bg-blue-50 text-blue-600' 
-          : theme === 'dark' 
-            ? 'hover:bg-gray-800 text-gray-300' 
-            : 'hover:bg-gray-100 text-gray-700'
+      <motion.div
+        className={`flex items-center space-x-3 rounded-lg px-4 py-3 transition-all duration-300 ${
+          active
+            ? isDark
+              ? 'bg-blue-900/30 text-blue-400'
+              : 'bg-blue-50 text-blue-600'
+            : isDark
+              ? 'text-gray-300 hover:bg-gray-800'
+              : 'text-gray-700 hover:bg-gray-100'
         }`}
-      onClick={() => navigateTo(path)}
-    >
-      <span className="text-lg">{icon}</span>
-      <span className="font-medium">{label}</span>
-    </motion.div>
+        onClick={() => navigateTo(path)}
+      >
+        <span className="text-lg">{icon}</span>
+        <span className="font-medium">{label}</span>
+      </motion.div>
     );
   };
 
-  // 发送消息
-  const sendMessage = () => {
-    if (!inputMessage.trim() || isSending) return;
-    
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: inputMessage.trim(),
-      sender: 'user',
-      timestamp: new Date()
-    };
-    
-    setMessages(prevMessages => [...prevMessages, userMessage]);
-    setInputMessage('');
-    setIsSending(true);
-    
-    // 模拟AI回复
-    setTimeout(() => {
-      setIsSending(false);
-      
-      const aiResponses: Record<string, string[]> = {
-        '分析集群状态': [
-          '让我为您分析一下集群状态...',
-          '根据当前数据，您的Kubernetes集群总体状态良好，但有以下几点需要注意：\n\n1. 节点资源使用情况：\n   - node-1: CPU使用率65%，内存使用率78%（较高）\n   - node-2: CPU使用率45%，内存使用率62%\n   - node-3: 当前处于离线状态\n   - 其他节点资源使用正常\n\n2. Pods状态：\n   - 共有45个运行中的Pods\n   - 3个已暂停的Pods\n   - 2个失败的Pods（主要是broken-pod-456ij）\n\n3. 建议：\n   - 考虑为node-1增加资源或迁移部分负载\n   - 检查并修复node-3的离线问题\n   - 调查broken-pod-456ij失败的原因'
-        ],
-        '分析Pod失败原因': [
-          '正在分析Pod失败原因...',
-          '我分析了最近失败的Pods，主要问题如下：\n\n1. broken-pod-456ij：\n   - 失败原因：容器镜像拉取失败（ErrImagePull）\n   - 错误信息："failed to pull image \'faulty-app:v1.0.0\': rpc error: code = Unknown desc = repository does not exist or may require \'docker login\'" \n   - 建议：检查镜像名称是否正确，确保镜像仓库可访问\n\n2. web-app-789df：\n   - 最近有1次重启记录\n   - 重启原因：OOMKilled（内存不足）\n   - 建议：考虑增加容器的内存限制或优化应用内存使用'
-        ],
-        '提供工作负载优化建议': [
-          '正在生成工作负载优化建议...',
-          '基于您的集群数据，我为以下工作负载提供了优化建议：\n\n1. web-app Deployment：\n   - 当前配置：3个副本，每个副本请求100m CPU / 256Mi内存，限制200m CPU / 512Mi内存\n   - 建议：考虑将副本数增加到4个，以提高可用性；或者如果资源紧张，也可以降低副本的内存请求至200Mi\n\n2. api-server Deployment：\n   - 当前配置：2个副本，每个副本请求400m CPU / 1Gi内存\n   - 建议：考虑配置水平Pod自动伸缩（HPA），根据CPU使用率自动调整副本数\n\n3. database StatefulSet：\n   - 建议：配置Pod中断预算（PDB），确保至少有一个数据库Pod始终可用\n\n4. 整体资源分配优化：\n   - 考虑实施资源配额（Resource Quotas）和限制范围（Limit Ranges），以更好地管理命名空间级别的资源分配'
-        ],
-        '查看节点状态': [
-          '正在查询节点状态...',
-          '您的集群中有6个节点，详细状态如下：\n\n1. node-1 (192.168.1.101)\n   - 状态：在线\n   - CPU使用率：65%\n   - 内存使用率：78%\n   - 运行中Pods：12\n\n2. node-2 (192.168.1.102)\n   - 状态：在线\n   - CPU使用率：45%\n   - 内存使用率：62%\n   - 运行中Pods：10\n\n3. node-3 (192.168.1.103)\n   - 状态：离线\n   - 运行中Pods：8\n\n4. node-4 (192.168.1.104)\n   - 状态：在线\n   - CPU使用率：30%\n   - 内存使用率：45%\n   - 运行中Pods：7\n\n5. node-5 (192.168.1.105)\n   - 状态：在线\n   - CPU使用率：55%\n   - 内存使用率：68%\n   - 运行中Pods：9\n\n6. node-6 (192.168.1.106)\n   - 状态：在线\n   - CPU使用率：25%\n   - 内存使用率：35%\n   - 运行中Pods：6\n\n注意：node-3已经离线，请及时检查并修复此问题。'
-        ],
-        '帮助': [
-          '我是Kubernetes AI助手，我可以帮助您：\n\n1. 分析集群整体状态和资源使用情况\n2. 诊断Pod失败原因和集群问题\n3. 提供工作负载优化和资源分配建议\n4. 解释Kubernetes概念和最佳实践\n5. 生成集群配置示例\n\n您可以尝试提问：\n- 分析集群状态\n- 分析Pod失败原因\n- 提供工作负载优化建议\n- 查看节点状态'
-        ]
-      };
-      
-      // 查找匹配的回复，如果没有匹配项则使用默认回复
-      let aiResponseText = '感谢您的提问！我正在分析您的问题...';
-      
-      // 检查是否有匹配的预定义回复
-      for (const [key, responses] of Object.entries(aiResponses)) {
-        if (userMessage.text.includes(key)) {
-          // 先添加"正在处理"的消息
-          setMessages(prevMessages => [
-            ...prevMessages,
-            {
-              id: `${Date.now()}-processing`,
-              text: responses[0],
-              sender: 'ai',
-              timestamp: new Date(),
-              isProcessing: true
-            }
-          ]);
-          
-          // 延迟一段时间后添加完整回复
-          setTimeout(() => {
-            setMessages(prevMessages => 
-              prevMessages.filter(msg => msg.id !== `${Date.now()}-processing`)
-            );
-            
-            const fullResponse: Message = {
-              id: `${Date.now()}-full`,
-              text: responses[1],
-              sender: 'ai',
-              timestamp: new Date()
-            };
-            
-            setMessages(prevMessages => [...prevMessages.filter(msg => msg.id !== `${Date.now()}-processing`), fullResponse]);
-            
-            // 添加到历史记录
-            setDiagnosisHistory(prevHistory => [
-              {
-                id: Date.now().toString(),
-                title: userMessage.text,
-                date: new Date(),
-                summary: responses[1].substring(0, 100) + '...'
-              },
-              ...prevHistory
-            ]);
-            
-          }, 2000);
-          
-          return;
-        }
+  const refreshClusterStatus = async () => {
+    setRefreshingCluster(true);
+    try {
+      const status = await apiClient.get<AIClusterStatus>(
+        aiDiagnosisAPI.getNodeStatus,
+        selectedClusterId ? { clusterId: selectedClusterId } : undefined,
+      );
+      setClusterStatus(status);
+      if (!currentConversationId) {
+        setMessages(createWelcomeMessage(status.clusterName || welcomeClusterName));
       }
-      
-      // 默认回复
-      const defaultResponses = [
-        '感谢您的提问！根据您提供的信息，我需要更具体的细节来为您提供准确的帮助。您可以尝试提供更多上下文或具体问题，比如：\n\n1. 您想分析集群中的特定资源或组件\n2. 您遇到了某个具体的错误或问题\n3. 您想了解某种Kubernetes功能或最佳实践\n\n您也可以尝试提问："帮助"来查看我能提供的所有服务',
-        '我理解您的需求，但需要更多信息来为您提供准确的建议。请提供更多关于您的集群状态、遇到的问题或具体需求的详细信息。\n\n如果您不确定如何开始，您可以尝试提问："分析集群状态"来获取集群的整体健康状况分析。'
-      ];
-      
-      // 随机选择一个默认回复
-      const randomResponse = defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
-      
-      const defaultMessage: Message = {
-        id: Date.now().toString(),
-        text: randomResponse,
-        sender: 'ai',
-        timestamp: new Date()
-      };
-      
-      setMessages(prevMessages => [...prevMessages, defaultMessage]);
-    }, 1000);
-  };
-
-  // 处理键盘事件
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+    } finally {
+      setRefreshingCluster(false);
     }
   };
 
-  // 删除历史记录
-  const deleteHistoryItem = (id: string) => {
-    setDiagnosisHistory(prevHistory => prevHistory.filter(item => item.id !== id));
-    toast('诊断历史已删除');
+  const refreshHistory = async (preferredConversationId?: string) => {
+    const history = await apiClient.get<AIConversation[]>(
+      aiDiagnosisAPI.getDiagnosisHistory,
+      selectedClusterId ? { clusterId: selectedClusterId } : undefined,
+    );
+    setConversations(history);
+    if (preferredConversationId && history.some((item) => item.id === preferredConversationId)) {
+      setCurrentConversationId(preferredConversationId);
+    } else if (preferredConversationId === '') {
+      setCurrentConversationId('');
+    }
   };
 
-  // 查看历史记录详情
-  const viewHistoryItem = (item: DiagnosisHistory) => {
+  const loadConversation = async (conversationId: string) => {
+    const detail = await apiClient.get<AIConversation>(
+      replacePathParams(aiDiagnosisAPI.getConversationDetail, { id: conversationId }),
+    );
+    setCurrentConversationId(detail.id);
+    setMessages(detail.messages?.length ? detail.messages : createWelcomeMessage(detail.clusterName || welcomeClusterName));
     setActiveTab('chat');
-    // 在实际应用中，这里应该加载对应的完整对话历史
-    setMessages([
-      {
-        id: 'history-query',
-        text: item.title,
-        sender: 'user',
-        timestamp: new Date()
-      },
-      {
-        id: 'history-response',
-        text: `这是您查询"${item.title}"的分析结果。\n\n${item.summary.substring(0, 200)}...\n\n（完整对话历史已加载）`,
-        sender: 'ai',
-        timestamp: new Date()
-      }
-    ]);
   };
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1,
-      transition: { 
-        duration: 0.5,
-        staggerChildren: 0.1
-      }
+  const handleDeleteConversation = async (conversationId: string) => {
+    const confirmed = window.confirm('确认删除这条 AI 诊断记录吗？删除后不可恢复。');
+    if (!confirmed) {
+      return;
     }
+
+    await apiClient.delete<void>(replacePathParams(aiDiagnosisAPI.deleteConversation, { id: conversationId }));
+    if (conversationId === currentConversationId) {
+      setCurrentConversationId('');
+      setMessages(createWelcomeMessage(welcomeClusterName));
+    }
+    await refreshHistory(conversationId === currentConversationId ? '' : currentConversationId);
+    toast.success('诊断记录已删除');
   };
-  
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: { 
-      y: 0, 
-      opacity: 1,
-      transition: { duration: 0.3 }
+
+  const handleNewConversation = () => {
+    setCurrentConversationId('');
+    setMessages(createWelcomeMessage(welcomeClusterName));
+    setActiveTab('chat');
+    setInputMessage('');
+  };
+
+  const handleSendMessage = async () => {
+    const nextMessage = inputMessage.trim();
+    if (!nextMessage || sending) {
+      return;
+    }
+
+    const optimisticUserMessage: AIConversationMessage = {
+      id: `local-user-${Date.now()}`,
+      role: 'user',
+      content: nextMessage,
+      createdAt: new Date().toISOString(),
+    };
+    const previousMessages = messages;
+
+    setMessages((current) => [...current, optimisticUserMessage]);
+    setInputMessage('');
+    setSending(true);
+
+    try {
+      const response = await apiClient.post<AIChatResponse>(aiDiagnosisAPI.sendMessage, {
+        conversationId: currentConversationId || undefined,
+        message: nextMessage,
+        clusterId: selectedClusterId || undefined,
+      });
+
+      setCurrentConversationId(response.conversation.id);
+      setClusterStatus(response.cluster);
+      setMessages(
+        response.conversation.messages?.length
+          ? response.conversation.messages
+          : previousMessages,
+      );
+      await refreshHistory(response.conversation.id);
+    } catch (error) {
+      setMessages(previousMessages);
+      return;
+    } finally {
+      setSending(false);
     }
   };
 
-  const headerIntro = (
-    <div className="flex min-w-0 items-center gap-4">
-      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${
-        theme === 'dark'
-          ? 'bg-blue-900/40 border-blue-800/60'
-          : 'bg-blue-50 border-blue-200'
-      }`}>
-        <Brain className="text-blue-400" size={24} />
-      </div>
-      <div className="min-w-0">
-        <h1 className="text-xl md:text-2xl font-bold leading-tight">AI 诊断助手</h1>
-        <p className={`mt-1 text-sm md:text-base ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
-          智能分析 Kubernetes 集群问题，提供专业建议和优化方案
-        </p>
-      </div>
-    </div>
-  );
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void handleSendMessage();
+    }
+  };
 
   return (
-    <div className={`min-h-screen flex transition-colors duration-300 ${
-      theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'
-    }`}>
-      {/* 侧边栏 - 移动端 */}
+    <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setSidebarOpen(false)}></div>
-          <motion.div 
-            className={`fixed top-0 left-0 h-full w-64 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} shadow-lg`}
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
+          <motion.div
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.28 }}
+            className={`relative h-full w-64 shadow-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
           >
-            <div className="p-4 flex justify-between items-center border-b border-gray-700">
-              <div className="flex items-center space-x-2">
+            <div className={`flex items-center justify-between border-b p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-2">
                 <Server className="text-blue-500" />
                 <h2 className="text-xl font-bold">K8s Agent</h2>
               </div>
-              <button onClick={() => setSidebarOpen(false)} className="p-1 rounded-md hover:bg-gray-700">
-                <X size={20} />
+              <button onClick={() => setSidebarOpen(false)} className={`rounded-lg p-1 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+                <X size={18} />
               </button>
             </div>
-            <div className="p-4 space-y-1">
-              {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
-              {renderNavItem(<Server size={20} />, '节点', '/nodes')}
-              {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
-              {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
-              {renderNavItem(<Settings size={20} />, '设置', '/settings')}
-              {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
+            <div className="space-y-1 p-4">
+              {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
+              {navItem(<Server size={20} />, '节点', '/nodes')}
+              {navItem(<Database size={20} />, 'Pods', '/pods')}
+              {navItem(<Network size={20} />, '工作负载', '/workloads')}
+              {navItem(<Settings size={20} />, '设置', '/settings')}
+              {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
             </div>
           </motion.div>
         </div>
       )}
 
-      {/* 侧边栏 - 桌面端 */}
-       <div className={`hidden lg:flex lg:flex-col w-64 border-r h-screen fixed ${
-         theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-       }`}>
-         <div className={`p-4 border-b flex items-center space-x-2 ${
-           theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-         }`}>
-            <Server className="text-blue-500" />
-            <h2 className="text-xl font-bold">K8s Agent</h2>
+      <div className={`fixed inset-y-0 left-0 hidden w-64 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+        <div className={`flex items-center gap-2 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+          <Server className="text-blue-500" />
+          <h2 className="text-xl font-bold">K8s Agent</h2>
         </div>
-        <div className="p-4 space-y-1 flex-1 overflow-y-auto">
-          {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
-          {renderNavItem(<Server size={20} />, '节点', '/nodes')}
-          {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
-          {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
-          {renderNavItem(<Settings size={20} />, '设置', '/settings')}
-          {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
+        <div className="flex-1 space-y-1 overflow-y-auto p-4">
+          {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
+          {navItem(<Server size={20} />, '节点', '/nodes')}
+          {navItem(<Database size={20} />, 'Pods', '/pods')}
+          {navItem(<Network size={20} />, '工作负载', '/workloads')}
+          {navItem(<Settings size={20} />, '设置', '/settings')}
+          {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
         </div>
-        <div className={`p-4 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className={`border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className={`w-8 h-8 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
+            <div className="flex items-center gap-3">
+              <div className={`flex h-8 w-8 items-center justify-center rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
                 <User size={16} />
               </div>
               <div>
@@ -369,9 +439,9 @@ interface DiagnosisHistory {
                 <div className="text-xs opacity-70">admin@k8s-agent.com</div>
               </div>
             </div>
-            <button 
+            <button
               onClick={handleLogout}
-              className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+              className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
               aria-label="退出登录"
             >
               <LogOut size={18} />
@@ -380,302 +450,436 @@ interface DiagnosisHistory {
         </div>
       </div>
 
-       {/* 主内容区 */}
-      <div className="flex-1 lg:ml-64">
-        {/* 顶部导航栏 */}
-         <header className={`sticky top-0 z-40 border-b ${
-           theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-         }`}>
-            <div className="flex items-start justify-between gap-4 p-4 md:px-6 md:py-5">
-              <div className="flex min-w-0 items-start gap-4">
-                <button 
-                  onClick={() => setSidebarOpen(true)}
-                className={`lg:hidden mt-1 p-2 rounded-md ${
-                  theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                }`}
+      <div className="lg:ml-64">
+        <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+          <div className="flex items-start justify-between gap-4 px-4 py-4 md:px-6 md:py-5">
+            <div className="flex min-w-0 items-start gap-4">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className={`mt-1 rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
               >
                 <Menu size={20} />
               </button>
-                {headerIntro}
+              <div className="flex min-w-0 items-center gap-4">
+                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isDark ? 'border-blue-800/60 bg-blue-900/40' : 'border-blue-200 bg-blue-50'}`}>
+                  <Brain className="text-blue-500" size={24} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-xl font-bold md:text-2xl">AI 诊断助手</h1>
+                  <p className={`mt-1 text-sm md:text-base ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    结合真实集群状态、大模型推理与历史会话，输出诊断结论、风险判断和下一步建议。
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="flex shrink-0 items-center space-x-3">
-              <button 
+            <div className="flex items-center gap-3">
+              <button
                 onClick={toggleTheme}
-                className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
-                aria-label={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
+                className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                aria-label={isDark ? '切换到亮色模式' : '切换到暗色模式'}
               >
-                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                {isDark ? <Sun size={20} /> : <Moon size={20} />}
               </button>
               <NotificationCenter />
             </div>
           </div>
         </header>
 
-        {/* AI诊断内容 */}
-        <main className="p-4 md:p-6">
-           {loading ? (
-             <div className={`p-5 rounded-xl border shadow-sm animate-pulse-slow h-[calc(100vh-120px)] flex flex-col ${
-               theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-             }`}>
-              <div className="flex justify-between items-center mb-4">
-                <div className={`h-8 w-1/4 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
-                <div className="flex space-x-2">
-                  <div className={`h-8 w-24 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
-                  <div className={`h-8 w-24 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+        <main className="space-y-6 p-4 md:p-6">
+          <section className={`rounded-2xl border p-5 shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <div className="text-sm opacity-70">当前分析集群</div>
+                <div className="mt-1 text-2xl font-bold">{welcomeClusterName}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>
+                    {connectionMeta.label}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    更新时间：{clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                  </span>
                 </div>
               </div>
-              <div className={`flex-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} overflow-hidden`}>
-                {/* 加载中的消息骨架屏 */}
-                {[1, 2, 3].map((item) => (
-                  <div key={item} className="p-4 border-b border-gray-600">
-                    <div className={`h-4 w-1/6 rounded ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'} mb-2`}></div>
-                    <div className={`h-4 w-full rounded ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'} mb-1`}></div>
-                    <div className={`h-4 w-3/4 rounded ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4">
-                <div className={`h-12 w-full rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <ClusterSelector
+                  theme={theme}
+                  clusters={enabledClusters}
+                  value={selectedClusterId}
+                  loading={clusterLoading}
+                  onChange={setSelectedClusterId}
+                />
+                <button
+                  onClick={() => void refreshClusterStatus()}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium ${
+                    isDark ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <RefreshCw size={16} className={refreshingCluster ? 'animate-spin' : ''} />
+                  刷新诊断上下文
+                </button>
+                <button
+                  onClick={handleNewConversation}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <PlusCircle size={16} />
+                  新建会话
+                </button>
               </div>
             </div>
-          ) : (
-            <motion.div 
-              initial="hidden"
-              animate="visible"
-              variants={containerVariants}
-              className="h-[calc(100vh-120px)] flex flex-col"
-            >
-               {/* 诊断界面 */}
 
-              {/* 诊断界面 */}
-               <motion.div 
-                variants={itemVariants}
-                className={`rounded-xl border shadow-sm flex flex-col h-full ${
-                  theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm opacity-70">集群节点</span>
+                  <Server size={18} className="text-blue-500" />
+                </div>
+                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.totalNodes ?? 0}</div>
+                <div className="mt-2 text-sm opacity-70">
+                  在线 {clusterStatus?.overview.onlineNodes ?? 0} / 异常 {clusterStatus?.overview.offlineNodes ?? 0}
+                </div>
+              </div>
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm opacity-70">运行中 Pods</span>
+                  <Database size={18} className="text-emerald-500" />
+                </div>
+                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.runningPods ?? 0}</div>
+                <div className="mt-2 text-sm opacity-70">
+                  失败 {clusterStatus?.overview.failedPods ?? 0} / 暂停 {clusterStatus?.overview.pausedPods ?? 0}
+                </div>
+              </div>
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm opacity-70">CPU 使用率</span>
+                  <BarChart3 size={18} className="text-amber-500" />
+                </div>
+                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.cpuUsage ?? 0}%</div>
+                <div className="mt-2 text-sm opacity-70">内存 {clusterStatus?.overview.memoryUsage ?? 0}%</div>
+              </div>
+              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm opacity-70">工作负载</span>
+                  <Package size={18} className="text-purple-500" />
+                </div>
+                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.totalWorkloads ?? 0}</div>
+                <div className="mt-2 text-sm opacity-70">待关注 {clusterStatus?.workloadAlerts.length ?? 0} 项</div>
+              </div>
+            </div>
+          </section>
+
+          <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+            <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`flex-1 px-4 py-3 text-sm font-medium ${
+                  activeTab === 'chat'
+                    ? isDark
+                      ? 'border-b-2 border-blue-500 bg-gray-900 text-white'
+                      : 'border-b-2 border-blue-500 bg-blue-50 text-blue-600'
+                    : isDark
+                      ? 'text-gray-400 hover:text-white'
+                      : 'text-gray-500 hover:text-gray-900'
                 }`}
               >
-                {/* 标签页 */}
-                 <div className={`border-b flex ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                  <button 
-                    className={`flex-1 py-3 px-4 text-sm font-medium ${
-                       activeTab === 'chat' 
-                        ? theme === 'dark'
-                          ? 'bg-gray-900 text-white border-b-2 border-blue-500'
-                          : 'bg-blue-50 text-blue-600 border-b-2 border-blue-500'
-                        : theme === 'dark'
-                          ? 'text-gray-400 hover:text-white'
-                          : 'text-gray-500 hover:text-gray-900'
-                    } transition-colors`}
-                    onClick={() => setActiveTab('chat')}
-                  >
-                    <MessageCircle size={16} className="inline-block mr-1" />
-                    聊天
-                  </button>
-                  <button 
-                     className={`flex-1 py-3 px-4 text-sm font-medium ${
-                       activeTab === 'history' 
-                         ? theme === 'dark'
-                           ? 'bg-gray-900 text-white border-b-2 border-blue-500'
-                           : 'bg-blue-50 text-blue-600 border-b-2 border-blue-500'
-                         : theme === 'dark'
-                           ? 'text-gray-400 hover:text-white'
-                           : 'text-gray-500 hover:text-gray-900'
-                     } transition-colors`}
-                    onClick={() => setActiveTab('history')}
-                  >
-                    <History size={16} className="inline-block mr-1" />
-                    诊断历史
-                  </button>
-                </div>
+                <MessageCircle size={16} className="mr-1 inline-block" />
+                聊天
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`flex-1 px-4 py-3 text-sm font-medium ${
+                  activeTab === 'history'
+                    ? isDark
+                      ? 'border-b-2 border-blue-500 bg-gray-900 text-white'
+                      : 'border-b-2 border-blue-500 bg-blue-50 text-blue-600'
+                    : isDark
+                      ? 'text-gray-400 hover:text-white'
+                      : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                <History size={16} className="mr-1 inline-block" />
+                诊断历史
+              </button>
+            </div>
 
-                {/* 聊天内容 */}
-                {activeTab === 'chat' && (
-                  <>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                      {messages.map((message) => (
-                        <div 
-                          key={message.id} 
-                          className={`flex ${
-                            message.sender === 'user' ? 'justify-end' : 'justify-start'
+            {loading ? (
+              <div className="grid gap-6 p-5 xl:grid-cols-[2fr,1fr]">
+                <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                <div className={`h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+              </div>
+            ) : activeTab === 'chat' ? (
+              <div className="grid gap-6 p-5 xl:grid-cols-[2fr,1fr]">
+                <div className={`flex min-h-[620px] flex-col rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className={`flex items-center justify-between border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <div>
+                      <div className="font-semibold">诊断对话</div>
+                      <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {currentConversation ? `会话标题：${currentConversation.title}` : '新会话将结合当前集群上下文进行分析'}
+                      </div>
+                    </div>
+                    {currentConversation && (
+                      <button
+                        onClick={handleNewConversation}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                      >
+                        回到新会话
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-5 overflow-y-auto p-4">
+                    {messages.map((message) => (
+                      <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] ${message.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
+                          <div className={`mb-1 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {message.role === 'user' ? '你' : 'AI 助手'} · {formatConversationTime(message.createdAt)}
+                          </div>
+                          <div
+                            className={`rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                              message.role === 'user'
+                                ? 'bg-blue-600 text-white'
+                                : isDark
+                                  ? 'bg-gray-700 text-white'
+                                  : 'bg-white text-gray-900'
+                            }`}
+                          >
+                            <pre className="whitespace-pre-wrap break-words font-sans">{message.content}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {sending && (
+                      <div className="flex justify-start">
+                        <div className={`rounded-2xl px-4 py-3 ${isDark ? 'bg-gray-700' : 'bg-white'} shadow-sm`}>
+                          <div className="flex items-center gap-2 text-sm">
+                            <RefreshCw size={14} className="animate-spin" />
+                            正在结合集群上下文生成诊断结果...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef}></div>
+                  </div>
+
+                  <div className={`border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <div className="relative">
+                      <textarea
+                        value={inputMessage}
+                        onChange={(event) => setInputMessage(event.target.value)}
+                        onKeyDown={handleInputKeyDown}
+                        placeholder="请输入你的问题，例如：为什么 openebs 的工作负载一直不稳定？当前是否存在需要优先处理的风险？"
+                        className={`h-28 w-full resize-none rounded-xl border px-4 py-3 pr-14 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          isDark ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                        }`}
+                      />
+                      <button
+                        onClick={() => void handleSendMessage()}
+                        disabled={!inputMessage.trim() || sending}
+                        className={`absolute bottom-3 right-3 rounded-full p-2 text-white ${
+                          !inputMessage.trim() || sending ? 'cursor-not-allowed bg-gray-500' : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                        aria-label="发送消息"
+                      >
+                        <Send size={18} />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {suggestionPrompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => setInputMessage(prompt)}
+                          className={`rounded-full px-3 py-1 text-xs ${
+                            isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
-                          <div className={`flex flex-col max-w-[80%] ${
-                            message.sender === 'user' ? 'items-end' : 'items-start'
-                          }`}>
-                            <div className={`text-xs mb-1 ${
-                              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                            }`}>
-                              {message.sender === 'user' ? '您' : 'AI助手'}
-                              {' · '}
-                              {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                            <div 
-                               className={`p-3 rounded-lg ${
-                                 message.sender === 'user' 
-                                   ? 'bg-blue-600 text-white' 
-                                   : theme === 'dark'
-                                     ? 'bg-gray-700 text-white'
-                                     : 'bg-gray-100 text-gray-900'
-                               } ${message.isProcessing ? 'animate-pulse' : ''}`}
-                            >
-                              <pre className="whitespace-pre-wrap text-left font-sans">
-                                {message.text}
-                              </pre>
-                            </div>
-                          </div>
-                        </div>
+                          {prompt}
+                        </button>
                       ))}
-                      {isSending && (
-                        <div className="flex justify-start">
-                          <div className="flex flex-col max-w-[80%] items-start">
-                            <div className={`text-xs mb-1 ${
-                              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                            }`}>
-                              AI助手 · 正在输入...
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">优先关注节点</div>
+                      <Server size={16} className="text-blue-500" />
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {clusterStatus?.nodeHighlights.length ? (
+                        clusterStatus.nodeHighlights.map((node) => (
+                          <div key={node.name} className={`rounded-lg border p-3 text-sm ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white'}`}>
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium">{node.name}</div>
+                              <span className={`rounded-full px-2 py-0.5 text-xs ${
+                                node.status === 'offline'
+                                  ? isDark
+                                    ? 'bg-rose-500/15 text-rose-300'
+                                    : 'bg-rose-50 text-rose-600'
+                                  : isDark
+                                    ? 'bg-emerald-500/15 text-emerald-300'
+                                    : 'bg-emerald-50 text-emerald-600'
+                              }`}>
+                                {node.status}
+                              </span>
                             </div>
-                               <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                              <div className="flex space-x-1">
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '200ms' }}></div>
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '400ms' }}></div>
-                              </div>
+                            <div className={`mt-2 grid grid-cols-2 gap-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              <span>CPU {node.cpuUsage}%</span>
+                              <span>内存 {node.memoryUsage}%</span>
+                              <span>Pods {node.pods}</span>
+                              <span>{node.schedulable ? '可调度' : '不可调度'}</span>
                             </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className={`rounded-lg border border-dashed p-4 text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                          暂无需要重点关注的节点。
                         </div>
                       )}
-                      <div ref={messagesEndRef} />
                     </div>
+                  </div>
 
-                    {/* 输入区域 */}
-                     <div className={`p-4 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-                      <div className="relative">
-                        <textarea
-                          value={inputMessage}
-                          onChange={(e) => setInputMessage(e.target.value)}
-                          onKeyPress={handleKeyPress}
-                          placeholder="请输入您的问题，例如：分析集群状态、分析Pod失败原因..."
-                               className={`w-full pr-12 pl-4 py-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none h-24 ${
-                                 theme === 'dark'
-                                   ? 'border-gray-600 bg-gray-700 text-white'
-                                   : 'border-gray-300 bg-white text-gray-900'
-                               }`}
-                        />
-                        <button
-                          onClick={sendMessage}
-                          disabled={!inputMessage.trim() || isSending}
-                             className={`absolute right-3 bottom-3 p-2 rounded-full ${
-                               (!inputMessage.trim() || isSending)
-                                 ? 'bg-gray-600 cursor-not-allowed'
-                                 : 'bg-blue-600 hover:bg-blue-700'
-                             } text-white transition-colors`}
-                          aria-label="发送消息"
-                        >
-                          <Send size={18} />
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        <button 
-                           className={`px-3 py-1 text-xs rounded-full ${
-                             theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                           }`}
-                          onClick={() => setInputMessage('分析集群状态')}
-                        >
-                          分析集群状态
-                        </button>
-                        <button 
-                           className={`px-3 py-1 text-xs rounded-full ${
-                             theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                           }`}
-                          onClick={() => setInputMessage('分析Pod失败原因')}
-                        >
-                          分析Pod失败原因
-                        </button>
-                        <button 
-                           className={`px-3 py-1 text-xs rounded-full ${
-                             theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                           }`}
-                          onClick={() => setInputMessage('提供工作负载优化建议')}
-                        >
-                          提供工作负载优化建议
-                        </button>
-                        <button 
-                           className={`px-3 py-1 text-xs rounded-full ${
-                             theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                           }`}
-                          onClick={() => setInputMessage('查看节点状态')}
-                        >
-                          查看节点状态
-                        </button>
-                        <button 
-                           className={`px-3 py-1 text-xs rounded-full ${
-                             theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                           }`}
-                          onClick={() => setInputMessage('帮助')}
-                        >
-                          帮助
-                        </button>
-                      </div>
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">问题 Pods</div>
+                      <Database size={16} className="text-amber-500" />
                     </div>
-                  </>
-                )}
+                    <div className="mt-3 space-y-3">
+                      {clusterStatus?.problemPods.length ? (
+                        clusterStatus.problemPods.map((pod) => (
+                          <div key={`${pod.namespace}/${pod.name}`} className={`rounded-lg border p-3 text-sm ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white'}`}>
+                            <div className="font-medium">{pod.name}</div>
+                            <div className={`mt-1 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {pod.namespace} · {pod.status}
+                            </div>
+                            <div className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>节点：{pod.node || '--'}</div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className={`rounded-lg border border-dashed p-4 text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                          当前没有异常状态的 Pods。
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-                {/* 历史记录内容 */}
-                {activeTab === 'history' && (
-                  <div className="flex-1 overflow-y-auto p-4">
-                    {diagnosisHistory.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center">
-                        <History size={48} className={`mb-4 opacity-20 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
-                        <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>暂无诊断历史记录</p>
-                        <p className={`text-sm mt-2 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                          开始与AI助手对话，您的诊断历史将保存在这里
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {diagnosisHistory.map((item) => (
-                          <motion.div 
-                            key={item.id}
-                             className={`p-4 rounded-lg border cursor-pointer hover:shadow-md transition-all ${
-                               theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'
-                             }`}
-                            whileHover={{ y: -2 }}
-                            onClick={() => viewHistoryItem(item)}
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">工作负载告警</div>
+                      <Package size={16} className="text-purple-500" />
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {clusterStatus?.workloadAlerts.length ? (
+                        clusterStatus.workloadAlerts.map((item) => (
+                          <div key={`${item.scope}/${item.namespace}/${item.name}`} className={`rounded-lg border p-3 text-sm ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-white'}`}>
+                            <div className="font-medium">{item.name}</div>
+                            <div className={`mt-1 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {item.namespace} · {item.scope}
+                            </div>
+                            <div className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                              Ready {item.ready}/{item.desired} · Available {item.available}
+                              {item.paused ? ' · 已暂停' : ''}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className={`rounded-lg border border-dashed p-4 text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                          当前没有待处理的工作负载异常。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-6 p-5 xl:grid-cols-[1.3fr,1fr]">
+                <div className="space-y-4">
+                  {conversations.length === 0 ? (
+                    <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                      还没有 AI 诊断历史。发起第一条诊断问题后，会话会自动保存在这里。
+                    </div>
+                  ) : (
+                    conversations.map((conversation) => (
+                      <motion.div
+                        key={conversation.id}
+                        whileHover={{ y: -2 }}
+                        className={`cursor-pointer rounded-xl border p-4 shadow-sm transition-all ${
+                          currentConversationId === conversation.id
+                            ? isDark
+                              ? 'border-blue-700 bg-blue-900/20'
+                              : 'border-blue-200 bg-blue-50'
+                            : isDark
+                              ? 'border-gray-700 bg-gray-900/50 hover:border-gray-600'
+                              : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                        onClick={() => void loadConversation(conversation.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold">{conversation.title}</div>
+                            <div className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                              {conversation.summary}
+                            </div>
+                            <div className={`mt-3 flex flex-wrap items-center gap-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              <span className="inline-flex items-center gap-1">
+                                <Clock size={12} />
+                                {formatConversationTime(conversation.updatedAt)}
+                              </span>
+                              {conversation.clusterName && (
+                                <span className={`rounded-full px-2 py-0.5 ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                                  {conversation.clusterName}
+                                </span>
+                              )}
+                              {conversation.modelName && (
+                                <span className={`rounded-full px-2 py-0.5 ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                                  {conversation.modelName}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteConversation(conversation.id);
+                            }}
+                            className={`rounded-full p-2 ${isDark ? 'text-rose-300 hover:bg-gray-700' : 'text-rose-500 hover:bg-gray-100'}`}
+                            aria-label="删除会话"
                           >
-                            <div className="flex justify-between items-start">
-                              <h3 className="font-medium">{item.title}</h3>
-                              <button 
-                                className={`p-1 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700 text-red-400 hover:text-red-300' : 'hover:bg-gray-100 text-red-500 hover:text-red-600'}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteHistoryItem(item.id);
-                                }}
-                                aria-label="删除历史记录"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                            <p className={`text-sm mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                              {item.summary}
-                            </p>
-                            <div className="flex items-center mt-3 text-xs text-gray-500 dark:text-gray-400">
-                              <Clock size={12} className="mr-1" />
-                              {item.date.toLocaleDateString()} {item.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          </motion.div>
-                        ))}
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+
+                <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold">历史说明</div>
+                    <History size={16} className="text-blue-500" />
+                  </div>
+                  <div className={`mt-4 space-y-4 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    <p>AI 诊断历史会记录每次提问的主题、摘要、关联集群和使用模型，便于后续回溯。</p>
+                    <p>点击任意一条历史记录，会把完整对话重新加载回聊天区，继续追问时会保留上下文。</p>
+                    <p>如果切换了分析集群，建议新建会话，这样历史和诊断上下文会更清晰。</p>
+                    {currentConversation && (
+                      <div className={`rounded-lg border p-3 ${isDark ? 'border-gray-700 bg-gray-800/70 text-gray-200' : 'border-gray-200 bg-white text-gray-700'}`}>
+                        <div className="font-medium">{currentConversation.title}</div>
+                        <div className="mt-2 text-xs opacity-80">最近更新：{formatConversationTime(currentConversation.updatedAt)}</div>
+                        <div className="mt-1 text-xs opacity-80">会话摘要：{currentConversation.summary}</div>
                       </div>
                     )}
                   </div>
-                )}
-              </motion.div>
-
-               {/* 诊断界面 */}
-            </motion.div>
-          )}
+                </div>
+              </div>
+            )}
+          </section>
         </main>
       </div>
     </div>
   );
-};
-
-export default AIDiagnosis;
+}

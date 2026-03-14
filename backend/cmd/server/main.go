@@ -55,11 +55,16 @@ func main() {
 		log.Fatalf("failed to initialize audit storage: %v", err)
 	}
 
+	aiHistoryStore := store.NewAIConversationStore(pool)
+	if err := aiHistoryStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize ai history storage: %v", err)
+	}
+
 	k8sManager := k8s.NewManager(clusterStore, time.Duration(cfg.K8s.RequestTimeoutSeconds)*time.Second)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, k8sManager, redisCache),
+		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, k8sManager, redisCache),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

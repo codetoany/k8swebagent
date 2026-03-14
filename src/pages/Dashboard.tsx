@@ -15,6 +15,8 @@ import { useThemeContext } from '@/contexts/themeContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
+import apiClient from '@/lib/apiClient';
+import { dashboardAPI } from '@/lib/api';
 
 // 模拟数据
 const cpuUsageData = [
@@ -61,10 +63,29 @@ const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
 const Dashboard = () => {
   const { theme, toggleTheme } = useThemeContext();
-  const { logout, isAuthenticated } = useContext(AuthContext);
+  const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [overview, setOverview] = useState({
+    totalNodes: 6,
+    onlineNodes: 5,
+    offlineNodes: 1,
+    totalPods: 45,
+    runningPods: 40,
+    failedPods: 2,
+    pausedPods: 3,
+    totalWorkloads: 15,
+    cpuUsage: 65,
+    memoryUsage: 78,
+    diskUsage: 42,
+  });
+  const [cpuChartData, setCpuChartData] = useState(cpuUsageData);
+  const [memoryChartData, setMemoryChartData] = useState(memoryUsageData);
+  const [namespaceChartData, setNamespaceChartData] = useState(namespaceData);
+  const [nodeChartData, setNodeChartData] = useState(nodeStatusData);
+  const [podChartData, setPodChartData] = useState(podStatusData);
+  const [recentEvents, setRecentEvents] = useState<any[]>([]);
 
   // 处理登出
   const handleLogout = () => {
@@ -78,6 +99,96 @@ const Dashboard = () => {
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
     }
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDashboard = async () => {
+      setLoading(true);
+      try {
+        const [overviewData, resourceUsage, namespaceDistribution, recentEventsData] = await Promise.all([
+          apiClient.get<any>(dashboardAPI.getClusterOverview),
+          apiClient.get<any[]>(dashboardAPI.getResourceUsage),
+          apiClient.get<Array<{ name: string; value: number }>>(dashboardAPI.getNamespaceDistribution),
+          apiClient.get<any[]>(dashboardAPI.getRecentEvents),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        if (overviewData) {
+          setOverview((current) => ({ ...current, ...overviewData }));
+          setNodeChartData([
+            { name: '在线', value: overviewData.onlineNodes ?? 5 },
+            { name: '离线', value: overviewData.offlineNodes ?? 1 },
+          ]);
+          setPodChartData([
+            { name: '运行中', value: overviewData.runningPods ?? 40 },
+            { name: '已暂停', value: overviewData.pausedPods ?? 3 },
+            { name: '失败', value: overviewData.failedPods ?? 2 },
+          ]);
+        }
+
+        if (Array.isArray(resourceUsage) && resourceUsage.length > 0) {
+          setCpuChartData(resourceUsage.map((item) => ({ name: item.time, usage: item.cpuUsage })));
+          setMemoryChartData(resourceUsage.map((item) => ({ name: item.time, usage: item.memoryUsage })));
+        }
+
+        if (Array.isArray(namespaceDistribution) && namespaceDistribution.length > 0) {
+          setNamespaceChartData(namespaceDistribution);
+        }
+
+        if (Array.isArray(recentEventsData)) {
+          setRecentEvents(recentEventsData);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const formatRelativeTime = (timestamp: string) => {
+    const diffMinutes = Math.max(1, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000));
+    if (diffMinutes < 60) {
+      return `${diffMinutes} 分钟前`;
+    }
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) {
+      return `${diffHours} 小时前`;
+    }
+    return `${Math.round(diffHours / 24)} 天前`;
+  };
+
+  const getEventAccent = (type: string) => {
+    if (type === 'warning' || type === 'error') {
+      return {
+        icon: AlertTriangle,
+        iconClass: 'text-red-500',
+        panelClass: theme === 'dark' ? 'bg-gray-700 border-red-900/30' : 'bg-red-50 border-red-100',
+      };
+    }
+    if (type === 'success') {
+      return {
+        icon: Network,
+        iconClass: 'text-blue-500',
+        panelClass: theme === 'dark' ? 'bg-gray-700 border-blue-900/30' : 'bg-blue-50 border-blue-100',
+      };
+    }
+    return {
+      icon: Wifi,
+      iconClass: 'text-green-500',
+      panelClass: theme === 'dark' ? 'bg-gray-700 border-green-900/30' : 'bg-green-50 border-green-100',
+    };
   };
 
   const containerVariants = {
@@ -257,14 +368,14 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-2xl font-bold">6</p>
+                      <p className="text-2xl font-bold">{overview.totalNodes}</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                         <span className="text-green-500">+1</span> 较上周
                       </p>
                     </div>
                     <div className="flex items-center">
                       <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                        5/6 在线
+                        {overview.onlineNodes}/{overview.totalNodes} 在线
                       </span>
                     </div>
                   </div>
@@ -279,14 +390,14 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-2xl font-bold">45</p>
+                      <p className="text-2xl font-bold">{overview.totalPods}</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                         <span className="text-green-500">+5</span> 较上周
                       </p>
                     </div>
                     <div className="flex items-center">
                       <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                        90% 可用
+                        {Math.round((overview.runningPods / Math.max(overview.totalPods, 1)) * 100)}% 可用
                       </span>
                     </div>
                   </div>
@@ -301,7 +412,7 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-2xl font-bold">65%</p>
+                      <p className="text-2xl font-bold">{overview.cpuUsage}%</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                         <span className="text-red-500">+10%</span> 较上周
                       </p>
@@ -323,7 +434,7 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <p className="text-2xl font-bold">78%</p>
+                      <p className="text-2xl font-bold">{overview.memoryUsage}%</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                         <span className="text-red-500">+5%</span> 较上周
                       </p>
@@ -372,7 +483,7 @@ const Dashboard = () => {
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart
-                        data={cpuUsageData}
+                        data={cpuChartData}
                         margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                       >
                         <defs>
@@ -425,7 +536,7 @@ const Dashboard = () => {
                           fillOpacity={1} 
                           fill="url(#colorMemory)" 
                           name="内存使用率"
-                          data={memoryUsageData}
+                          data={memoryChartData}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -446,7 +557,7 @@ const Dashboard = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={namespaceData}
+                          data={namespaceChartData}
                           cx="50%"
                           cy="50%"
                           innerRadius={60}
@@ -454,7 +565,7 @@ const Dashboard = () => {
                           paddingAngle={2}
                           dataKey="value"
                         >
-                          {namespaceData.map((entry, index) => (
+                          {namespaceChartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
@@ -470,7 +581,7 @@ const Dashboard = () => {
                     </ResponsiveContainer>
                   </div>
                   <div className="grid grid-cols-1 gap-2 mt-2">
-                    {namespaceData.map((namespace, index) => (
+                    {namespaceChartData.map((namespace, index) => (
                       <div key={index} className="flex items-center justify-between text-sm">
                         <div className="flex items-center space-x-2">
                           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
@@ -491,7 +602,7 @@ const Dashboard = () => {
                 <div className={`p-5 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
                   <h3 className="font-medium mb-4">节点状态</h3>
                   <div className="space-y-3">
-                    {nodeStatusData.map((status, index) => (
+                    {nodeChartData.map((status, index) => (
                       <div key={index} className="space-y-1">
                         <div className="flex items-center justify-between text-sm">
                           <span>{status.name}</span>
@@ -500,7 +611,7 @@ const Dashboard = () => {
                         <div className={`h-2 rounded-full ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} overflow-hidden`}>
                           <div 
                             className={`h-full rounded-full ${status.name === '在线' ? 'bg-green-500' : 'bg-red-500'}`}
-                            style={{ width: `${(status.value / nodeStatusData.reduce((sum, item) => sum + item.value, 0)) * 100}%` }}
+                            style={{ width: `${(status.value / nodeChartData.reduce((sum, item) => sum + item.value, 0)) * 100}%` }}
                           ></div>
                         </div>
                       </div>
@@ -511,7 +622,7 @@ const Dashboard = () => {
                 <div className={`p-5 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
                   <h3 className="font-medium mb-4">Pod 状态</h3>
                   <div className="space-y-3">
-                    {podStatusData.map((status, index) => (
+                    {podChartData.map((status, index) => (
                       <div key={index} className="space-y-1">
                         <div className="flex items-center justify-between text-sm">
                           <span>{status.name}</span>
@@ -521,7 +632,7 @@ const Dashboard = () => {
                           <div 
                             className={`h-full rounded-full`}
                             style={{ 
-                              width: `${(status.value / podStatusData.reduce((sum, item) => sum + item.value, 0)) * 100}%`,
+                              width: `${(status.value / podChartData.reduce((sum, item) => sum + item.value, 0)) * 100}%`,
                               backgroundColor: COLORS[index % COLORS.length]
                             }}
                           ></div>
@@ -542,33 +653,24 @@ const Dashboard = () => {
                     </button>
                   </div>
                   <div className="space-y-4">
-                    <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-red-50'} border ${theme === 'dark' ? 'border-red-900/30' : 'border-red-100'}`}>
-                      <div className="flex items-start space-x-2">
-                        <AlertTriangle size={16} className="text-red-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">节点 node-3 离线</p>
-                          <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>5 分钟前</p>
+                    {(recentEvents.length > 0 ? recentEvents.slice(0, 3) : []).map((event) => {
+                      const accent = getEventAccent(event.type);
+                      const Icon = accent.icon;
+
+                      return (
+                        <div key={event.id} className={`p-3 rounded-lg border ${accent.panelClass}`}>
+                          <div className="flex items-start space-x-2">
+                            <Icon size={16} className={`${accent.iconClass} mt-0.5`} />
+                            <div>
+                              <p className="text-sm font-medium">{event.reason}</p>
+                              <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {formatRelativeTime(event.timestamp)}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                    <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-green-50'} border ${theme === 'dark' ? 'border-green-900/30' : 'border-green-100'}`}>
-                      <div className="flex items-start space-x-2">
-                        <Wifi size={16} className="text-green-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Pod web-app-789df 已创建</p>
-                          <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>20 分钟前</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-blue-50'} border ${theme === 'dark' ? 'border-blue-900/30' : 'border-blue-100'}`}>
-                      <div className="flex items-start space-x-2">
-                        <Network size={16} className="text-blue-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Deployment api-server 已更新</p>
-                          <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>1 小时前</p>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
               </motion.div>

@@ -12,6 +12,8 @@ import { useThemeContext } from '@/contexts/themeContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
+import apiClient from '@/lib/apiClient';
+import { namespacesAPI, podsAPI } from '@/lib/api';
 
 // 模拟 Pod 数据
 const podsData = [
@@ -171,12 +173,49 @@ const Pods = () => {
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [pods, setPods] = useState(podsData);
+  const [namespaceOptions, setNamespaceOptions] = useState(namespaces);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPod, setSelectedPod] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [selectedNamespace, setSelectedNamespace] = useState('全部');
+
+  useEffect(() => {
+    let active = true;
+
+    const loadPodsData = async () => {
+      setLoading(true);
+      try {
+        const [podList, namespaceList] = await Promise.all([
+          apiClient.get<any[]>(podsAPI.listPods),
+          apiClient.get<Array<{ name: string }>>(namespacesAPI.listNamespaces),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        if (Array.isArray(podList) && podList.length > 0) {
+          setPods(podList);
+        }
+
+        if (Array.isArray(namespaceList) && namespaceList.length > 0) {
+          setNamespaceOptions(['全部', ...namespaceList.map((namespace) => namespace.name)]);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadPodsData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 处理登出
   const handleLogout = () => {
@@ -617,7 +656,7 @@ const Pods = () => {
                       value={selectedNamespace}
                       onChange={(e) => setSelectedNamespace(e.target.value)}
                     >
-                      {namespaces.map((namespace) => (
+                      {namespaceOptions.map((namespace) => (
                         <option key={namespace} value={namespace}>
                           {namespace}
                         </option>

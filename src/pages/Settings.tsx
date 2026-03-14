@@ -10,11 +10,12 @@
     BarChart, Brain, Edit, Trash, Check
   } from 'lucide-react';
   import { useThemeContext } from '@/contexts/themeContext';
-  import { useTheme, Theme } from '@/hooks/useTheme';
   import { useContext } from 'react';
   import { AuthContext } from '@/contexts/authContext';
   import { useNavigate } from 'react-router-dom';
   import { toast } from 'sonner';
+  import apiClient from '@/lib/apiClient';
+  import { settingsAPI } from '@/lib/api';
 
   // 定义设置选项类型
   type ThemeOption = 'light' | 'dark' | 'system';
@@ -32,11 +33,11 @@
   }
 
   const SettingsPage = () => {
-    const { theme, toggleTheme, isDark } = useThemeContext();
-    const { logout, isAuthenticated } = useContext(AuthContext);
+    const { theme, toggleTheme } = useThemeContext();
+    const { logout } = useContext(AuthContext);
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [loading] = useState(false);
+    const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('general');
     
     // 设置表单状态
@@ -60,46 +61,55 @@
       isDefault: false
     });
     
-    // 模拟加载数据
+    // 接入只读设置接口
     useEffect(() => {
-      // 初始化设置值
-      const savedTheme = localStorage.getItem('theme') as Theme;
-      if (savedTheme) {
-        if (savedTheme === 'system') {
-          setThemeOption('system');
-        } else {
-          setThemeOption(savedTheme as ThemeOption);
-        }
-      }
-      
-      // 初始化AI模型数据
-      const savedModels = localStorage.getItem('aiModels');
-      if (savedModels) {
-        setAiModels(JSON.parse(savedModels));
-      } else {
-        // 默认模型数据
-        const defaultModels: AIModel[] = [
-          {
-            id: 'openai-gpt4o',
-            name: 'OpenAI GPT-4o',
-            apiBaseUrl: 'https://api.openai.com/v1',
-            apiKey: '',
-            modelType: 'openai',
-            isDefault: true
-          },
-          {
-            id: 'anthropic-claude3',
-            name: 'Anthropic Claude 3',
-            apiBaseUrl: 'https://api.anthropic.com/v1',
-            apiKey: '',
-            modelType: 'anthropic',
-            isDefault: false
+      let active = true;
+
+      const loadSettings = async () => {
+        setLoading(true);
+        try {
+          const [settings, models] = await Promise.all([
+            apiClient.get<any>(settingsAPI.getSettings),
+            apiClient.get<AIModel[]>(settingsAPI.getAIModels),
+          ]);
+
+          if (!active) {
+            return;
           }
-        ];
-        setAiModels(defaultModels);
-        localStorage.setItem('aiModels', JSON.stringify(defaultModels));
-      }
-      
+
+          if (settings?.theme) {
+            setThemeOption(settings.theme as ThemeOption);
+          }
+          if (settings?.language) {
+            setLanguageOption(settings.language as LanguageOption);
+          }
+          if (settings?.autoRefreshInterval !== undefined) {
+            setAutoRefresh(settings.autoRefreshInterval);
+          }
+          if (settings?.showResourceUsage !== undefined) {
+            setShowResourceUsage(settings.showResourceUsage);
+          }
+          if (settings?.showEvents !== undefined) {
+            setShowEvents(settings.showEvents);
+          }
+          if (settings?.notifications?.level) {
+            setNotificationOption(settings.notifications.level as NotificationOption);
+          }
+          if (Array.isArray(models)) {
+            setAiModels(models.map((model) => ({ ...model, apiKey: model.apiKey ?? '' })));
+          }
+        } finally {
+          if (active) {
+            setLoading(false);
+          }
+        }
+      };
+
+      void loadSettings();
+
+      return () => {
+        active = false;
+      };
     }, []);
 
     // 处理登出

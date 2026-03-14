@@ -12,6 +12,8 @@ import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import apiClient from '@/lib/apiClient';
+import { nodesAPI } from '@/lib/api';
 
 // 模拟节点数据
 const nodesData = [
@@ -178,11 +180,35 @@ const Nodes = () => {
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [nodes, setNodes] = useState(nodesData);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadNodes = async () => {
+      setLoading(true);
+      try {
+        const data = await apiClient.get<any[]>(nodesAPI.listNodes);
+        if (active && Array.isArray(data) && data.length > 0) {
+          setNodes(data);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadNodes();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 处理登出
   const handleLogout = () => {

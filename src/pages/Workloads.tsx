@@ -12,6 +12,8 @@ import { useThemeContext } from '@/contexts/themeContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
+import apiClient from '@/lib/apiClient';
+import { namespacesAPI, workloadsAPI } from '@/lib/api';
 
 // 模拟工作负载数据
 const workloadsData = [
@@ -125,13 +127,67 @@ const Workloads = () => {
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [workloads, setWorkloads] = useState(workloadsData);
+  const [namespaceOptions, setNamespaceOptions] = useState(namespaces);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedWorkload, setSelectedWorkload] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [selectedNamespace, setSelectedNamespace] = useState('全部');
   const [selectedWorkloadType, setSelectedWorkloadType] = useState('全部');
+
+  useEffect(() => {
+    let active = true;
+
+    const loadWorkloads = async () => {
+      setLoading(true);
+      try {
+        const [deployments, statefulsets, daemonsets, cronjobs, namespaceList] = await Promise.all([
+          apiClient.get<any[]>(workloadsAPI.listDeployments),
+          apiClient.get<any[]>(workloadsAPI.listStatefulSets),
+          apiClient.get<any[]>(workloadsAPI.listDaemonSets),
+          apiClient.get<any[]>(workloadsAPI.listCronJobs),
+          apiClient.get<Array<{ name: string }>>(namespacesAPI.listNamespaces),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        const merged = [
+          ...(deployments ?? []).map((item) => ({ ...item, type: 'deployment' })),
+          ...(statefulsets ?? []).map((item) => ({ ...item, type: 'statefulset' })),
+          ...(daemonsets ?? []).map((item) => ({ ...item, type: 'daemonset' })),
+          ...(cronjobs ?? []).map((item) => ({
+            ...item,
+            type: 'cronjob',
+            ready: item.ready ?? 0,
+            desired: item.desired ?? 0,
+            available: item.available ?? 0,
+            upToDate: item.upToDate ?? 0,
+          })),
+        ];
+
+        if (merged.length > 0) {
+          setWorkloads(merged);
+        }
+
+        if (Array.isArray(namespaceList) && namespaceList.length > 0) {
+          setNamespaceOptions(['全部', ...namespaceList.map((namespace) => namespace.name)]);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadWorkloads();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 处理登出
   const handleLogout = () => {
@@ -592,7 +648,7 @@ const Workloads = () => {
                       value={selectedNamespace}
                       onChange={(e) => setSelectedNamespace(e.target.value)}
                     >
-                      {namespaces.map((namespace) => (
+                      {namespaceOptions.map((namespace) => (
                         <option key={namespace} value={namespace}>
                           {namespace === '全部' ? '全部命名空间' : namespace}
                         </option>

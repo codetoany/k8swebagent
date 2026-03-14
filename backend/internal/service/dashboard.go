@@ -17,6 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var dashboardDisplayLocation = loadDashboardDisplayLocation()
+
 type DashboardService struct {
 	snapshotStore     *store.SnapshotStore
 	k8sManager        *k8s.Manager
@@ -86,6 +88,15 @@ func NewDashboardService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Man
 	}
 }
 
+func loadDashboardDisplayLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err == nil {
+		return location
+	}
+
+	return time.FixedZone("CST", 8*60*60)
+}
+
 func (s *DashboardService) OverviewPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
 	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
@@ -118,7 +129,7 @@ func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID s
 			return nil, overviewErr
 		}
 
-		return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().Local()))
+		return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().In(dashboardDisplayLocation)))
 	}
 
 	overview, err := s.buildOverview(ctx, clusterID)
@@ -126,7 +137,7 @@ func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID s
 		return nil, err
 	}
 
-	return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().Local()))
+	return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().In(dashboardDisplayLocation)))
 }
 
 func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {

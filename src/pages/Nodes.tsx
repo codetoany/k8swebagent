@@ -20,6 +20,46 @@ import TablePagination from '@/components/TablePagination';
 
 const nodesData: any[] = [];
 
+const MEMORY_UNIT_FACTORS: Record<string, number> = {
+  Ki: 1024,
+  Mi: 1024 ** 2,
+  Gi: 1024 ** 3,
+  Ti: 1024 ** 4,
+  K: 1000,
+  M: 1000 ** 2,
+  G: 1000 ** 3,
+  T: 1000 ** 4,
+};
+
+function formatMemoryToGB(value?: string) {
+  if (!value) {
+    return '--';
+  }
+
+  const trimmed = value.trim();
+  const match = trimmed.match(/^([\d.]+)\s*(Ki|Mi|Gi|Ti|K|M|G|T)?$/i);
+  if (!match) {
+    return trimmed;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return trimmed;
+  }
+
+  const unit = match[2] || '';
+  const factor = MEMORY_UNIT_FACTORS[unit] || 1;
+  const bytes = amount * factor;
+  const gigabytes = bytes / (1024 ** 3);
+
+  if (gigabytes >= 1) {
+    return `${gigabytes.toFixed(gigabytes >= 100 ? 0 : gigabytes >= 10 ? 1 : 2).replace(/\.0$/, '').replace(/(\.\d)0$/, '$1')} GB`;
+  }
+
+  const megabytes = bytes / (1024 ** 2);
+  return `${megabytes.toFixed(megabytes >= 100 ? 0 : 1).replace(/\.0$/, '')} MB`;
+}
+
 const Nodes = () => {
   const { theme, toggleTheme } = useThemeContext();
   const {
@@ -253,7 +293,7 @@ const Nodes = () => {
                     </div>
                     <div>
                       <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>内存</p>
-                      <p className="font-medium">{selectedNode.capacity.memory}</p>
+                      <p className="font-medium">{formatMemoryToGB(selectedNode.capacity.memory)}</p>
                     </div>
                     <div>
                       <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Pod 容量</p>
@@ -651,7 +691,7 @@ const Nodes = () => {
                             <div className="space-y-1">
                               <div className="flex items-center justify-between">
                                 <span>{node.memoryUsage}%</span>
-                                <span className="text-xs opacity-70">{node.capacity.memory}</span>
+                                <span className="text-xs opacity-70">{formatMemoryToGB(node.capacity.memory)}</span>
                               </div>
                               {renderUsageBar(node.memoryUsage)}
                             </div>

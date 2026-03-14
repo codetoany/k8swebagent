@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -271,20 +272,20 @@ func (s *DashboardService) buildOverview(ctx context.Context, clusterID string) 
 func buildResourceUsagePoints(overview DashboardOverview, resourceRange ResourceUsageRange, now time.Time) []ResourceUsagePoint {
 	switch resourceRange {
 	case ResourceUsageRangeWeek:
-		return buildResourceUsageWindowPoints(
+		return buildAdaptiveResourceUsagePoints(
 			overview,
-			buildDateLabels(now, 7, 1),
-			[]float64{0.78, 0.74, 0.81, 0.86, 0.83, 0.91, 1.0},
-			[]float64{0.72, 0.70, 0.74, 0.79, 0.82, 0.88, 1.0},
-			[]float64{0.80, 0.79, 0.81, 0.84, 0.86, 0.91, 1.0},
+			buildCurrentWeekLabels(now),
+			0.72,
+			0.66,
+			0.76,
 		)
 	case ResourceUsageRangeMonth:
-		return buildResourceUsageWindowPoints(
+		return buildAdaptiveResourceUsagePoints(
 			overview,
-			buildDateLabels(now, 7, 5),
-			[]float64{0.62, 0.67, 0.71, 0.76, 0.82, 0.90, 1.0},
-			[]float64{0.58, 0.61, 0.66, 0.72, 0.79, 0.88, 1.0},
-			[]float64{0.70, 0.73, 0.76, 0.80, 0.85, 0.92, 1.0},
+			buildCurrentMonthLabels(now),
+			0.58,
+			0.52,
+			0.68,
 		)
 	default:
 		return buildResourceUsageWindowPoints(
@@ -295,6 +296,33 @@ func buildResourceUsagePoints(overview DashboardOverview, resourceRange Resource
 			[]float64{0.56, 0.53, 0.66, 0.78, 0.89, 0.81, 1.0},
 		)
 	}
+}
+
+func buildAdaptiveResourceUsagePoints(
+	overview DashboardOverview,
+	labels []string,
+	cpuStart float64,
+	memoryStart float64,
+	diskStart float64,
+) []ResourceUsagePoint {
+	if len(labels) == 0 {
+		return []ResourceUsagePoint{}
+	}
+
+	points := make([]ResourceUsagePoint, 0, len(labels))
+	denominator := float64(maxInt(len(labels)-1, 1))
+
+	for index, label := range labels {
+		progress := float64(index) / denominator
+		points = append(points, ResourceUsagePoint{
+			Time:        label,
+			CPUUsage:    scaledPercent(overview.CPUUsage, trendFactor(progress, cpuStart, 0.08, 0.6)),
+			MemoryUsage: scaledPercent(overview.MemoryUsage, trendFactor(progress, memoryStart, 0.06, 1.3)),
+			DiskUsage:   scaledPercent(overview.DiskUsage, trendFactor(progress, diskStart, 0.05, 0.9)),
+		})
+	}
+
+	return points
 }
 
 func buildResourceUsageWindowPoints(
@@ -330,6 +358,37 @@ func buildDateLabels(now time.Time, count int, stepDays int) []string {
 	return labels
 }
 
+func buildCurrentWeekLabels(now time.Time) []string {
+	localNow := now.Local()
+	weekday := int(localNow.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+
+	start := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location()).AddDate(0, 0, -(weekday - 1))
+	end := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+
+	labels := make([]string, 0, weekday)
+	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
+		labels = append(labels, date.Format("01/02"))
+	}
+
+	return labels
+}
+
+func buildCurrentMonthLabels(now time.Time) []string {
+	localNow := now.Local()
+	start := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, localNow.Location())
+	end := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+
+	labels := make([]string, 0, localNow.Day())
+	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
+		labels = append(labels, date.Format("01/02"))
+	}
+
+	return labels
+}
+
 func pickFactor(factors []float64, index int) float64 {
 	if len(factors) == 0 {
 		return 1
@@ -339,6 +398,19 @@ func pickFactor(factors []float64, index int) float64 {
 	}
 
 	return factors[len(factors)-1]
+}
+
+func trendFactor(progress float64, start float64, amplitude float64, phase float64) float64 {
+	base := start + ((1 - start) * progress)
+	wave := amplitude * math.Sin((progress*math.Pi*2.1)+phase)
+	value := base + wave
+	if value < 0.2 {
+		return 0.2
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 func normalizeResourceUsageRange(value string) ResourceUsageRange {
@@ -484,6 +556,13 @@ func deriveDiskUsage(cpuUsage int, memoryUsage int, totalWorkloads int) int {
 
 func scaledPercent(value int, factor float64) int {
 	return clampPercent(int(float64(value) * factor))
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func eventOccurredAt(event corev1.Event) time.Time {

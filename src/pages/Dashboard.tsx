@@ -140,6 +140,44 @@ const Dashboard = () => {
     if (resourceUsageData.length === 0) return [];
     return resourceUsageData.map((item) => ({ name: item.time, ...item }));
   }, [resourceUsageData]);
+  const resourceChartKey = useMemo(
+    () => `${selectedCluster?.id || 'default'}-${timeRange}-${displayResourceUsage.map((item) => item.name).join('|')}`,
+    [displayResourceUsage, selectedCluster?.id, timeRange],
+  );
+  const resourceXAxisInterval = useMemo(() => {
+    if (timeRange !== 'month') {
+      return 0;
+    }
+
+    return Math.max(Math.ceil(displayResourceUsage.length / 8) - 1, 0);
+  }, [displayResourceUsage.length, timeRange]);
+
+  const formatResourceAxisLabel = (label: string) => {
+    if (!label) return '--';
+    if (timeRange === 'today') return label;
+
+    const [month, day] = label.split('/');
+    if (!month || !day) return label;
+    return `${month}/${day}`;
+  };
+
+  const formatResourceTooltipLabel = (label: string) => {
+    if (!label) return '--';
+    if (timeRange === 'today') {
+      return `时间：${label}`;
+    }
+
+    const [month, day] = label.split('/');
+    if (!month || !day) {
+      return label;
+    }
+
+    if (timeRange === 'week') {
+      return `本周：${month}月${day}日`;
+    }
+
+    return `本月：${month}月${day}日`;
+  };
 
   const nodeStatusData = useMemo(() => [{ name: '在线', value: overview.onlineNodes, className: 'bg-green-500' }, { name: '离线', value: overview.offlineNodes, className: 'bg-red-500' }], [overview.offlineNodes, overview.onlineNodes]);
   const podStatusData = useMemo(() => [{ name: '运行中', value: overview.runningPods }, { name: '已暂停', value: overview.pausedPods }, { name: '失败', value: overview.failedPods }], [overview.failedPods, overview.pausedPods, overview.runningPods]);
@@ -278,12 +316,12 @@ const Dashboard = () => {
                     )}
                     <div className={`h-full transition-opacity duration-200 ${resourceUsageLoading && !loading ? 'opacity-40' : 'opacity-100'}`}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={displayResourceUsage} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart key={resourceChartKey} data={displayResourceUsage} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                           <defs><linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient><linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} /><stop offset="95%" stopColor="#ef4444" stopOpacity={0} /></linearGradient></defs>
-                          <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} interval={resourceXAxisInterval} tickMargin={10} tickFormatter={formatResourceAxisLabel} minTickGap={timeRange === 'month' ? 20 : 8} />
                           <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${value}%`} />
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#374151' : '#e5e7eb'} />
-                          <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff', borderColor: theme === 'dark' ? '#374151' : '#e5e7eb', borderRadius: '0.5rem', color: theme === 'dark' ? '#ffffff' : '#000000' }} formatter={(value) => [`${value}%`, '']} />
+                          <Tooltip labelFormatter={formatResourceTooltipLabel} contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff', borderColor: theme === 'dark' ? '#374151' : '#e5e7eb', borderRadius: '0.5rem', color: theme === 'dark' ? '#ffffff' : '#000000' }} formatter={(value) => [`${value}%`, '']} />
                           <Legend wrapperStyle={{ paddingTop: 10 }} />
                           <Area type="monotone" dataKey="cpuUsage" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCpu)" name="CPU 使用率" />
                           <Area type="monotone" dataKey="memoryUsage" stroke="#ef4444" fillOpacity={1} fill="url(#colorMemory)" name="内存使用率" />

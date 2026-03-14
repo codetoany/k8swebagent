@@ -461,63 +461,49 @@ export default function AIDiagnosis() {
 
       <div className="lg:ml-64 flex min-h-screen flex-col">
         <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-          <div className="grid gap-3 px-4 py-3 md:px-6 md:py-4 xl:grid-cols-[minmax(0,1fr)_auto_auto] xl:items-center">
-            <div className="flex min-w-0 items-start gap-4 xl:col-start-1">
+          <div className="flex items-center justify-between gap-3 px-4 py-2 md:px-6 md:py-2.5">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className={`mt-1 rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
               >
                 <Menu size={20} />
               </button>
-              <div className="flex min-w-0 items-center gap-4">
-                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isDark ? 'border-blue-800/60 bg-blue-900/40' : 'border-blue-200 bg-blue-50'}`}>
-                  <Brain className="text-blue-500" size={24} />
+              <div className="flex min-w-0 items-center gap-3">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${isDark ? 'border-blue-800/60 bg-blue-900/40' : 'border-blue-200 bg-blue-50'}`}>
+                  <Brain className="text-blue-500" size={20} />
                 </div>
                 <div className="min-w-0">
-                  <h1 className="truncate text-xl font-bold md:text-2xl">AI 诊断助手</h1>
-                  <p className={`mt-1 hidden text-sm 2xl:block ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    结合真实集群状态、大模型推理与历史会话，输出诊断结论、风险判断和下一步建议。
-                  </p>
+                  <h1 className="truncate text-lg font-semibold md:text-xl">AI 诊断助手</h1>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3 xl:col-start-2 xl:justify-end">
-              <button
-                onClick={toggleTheme}
-                className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
-                aria-label={isDark ? '切换到亮色模式' : '切换到暗色模式'}
-              >
-                {isDark ? <Sun size={20} /> : <Moon size={20} />}
-              </button>
-              <NotificationCenter />
-            </div>
-            <div className={`flex items-center gap-3 rounded-xl border px-3 py-2 xl:col-start-3 xl:row-start-1 xl:min-w-0 ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-gray-50'}`}>
-              <div className="min-w-0 xl:max-w-[220px]">
-                <div className="text-sm opacity-70">当前分析集群</div>
-                <div className="mt-1 truncate text-xl font-bold md:text-2xl">{welcomeClusterName}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>
-                    {connectionMeta.label}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    更新时间: {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
-                  </span>
-                </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className={`hidden items-center gap-2 rounded-full px-3 py-1 text-xs ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'} 2xl:flex`}>
+                <span className="opacity-70">集群</span>
+                <span className={`max-w-[160px] truncate font-medium ${isDark ? 'text-white' : 'text-gray-800'}`}>{welcomeClusterName}</span>
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${connectionMeta.badgeClass}`}>
+                  {connectionMeta.label}
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-white text-gray-600'}`}>
+                  {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                </span>
+                <span className={`${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                </span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <div className="flex items-center gap-2">
                 <ClusterSelector
                   theme={theme}
                   clusters={enabledClusters}
                   value={selectedClusterId}
                   loading={clusterLoading}
                   onChange={setSelectedClusterId}
+                  className="min-w-[160px]"
                 />
                 <button
                   onClick={() => void refreshClusterStatus()}
-                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium ${
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${
                     isDark ? 'border-gray-600 bg-gray-700 text-white hover:bg-gray-600' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
@@ -526,11 +512,19 @@ export default function AIDiagnosis() {
                 </button>
                 <button
                   onClick={handleNewConversation}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
                 >
                   <PlusCircle size={16} />
                   新建会话
                 </button>
+                <button
+                  onClick={toggleTheme}
+                  className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                  aria-label={isDark ? '切换到亮色模式' : '切换到暗色模式'}
+                >
+                  {isDark ? <Sun size={18} /> : <Moon size={18} />}
+                </button>
+                <NotificationCenter />
               </div>
             </div>
           </div>
@@ -540,16 +534,16 @@ export default function AIDiagnosis() {
           <section className="hidden">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <div className="text-sm opacity-70">当前分析集群</div>
+                <div className="text-xs opacity-70">当前分析集群</div>
                 <div className="mt-1 text-2xl font-bold">{welcomeClusterName}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${connectionMeta.badgeClass}`}>
                     {connectionMeta.label}
                   </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
                   </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     更新时间：{clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
                   </span>
                 </div>

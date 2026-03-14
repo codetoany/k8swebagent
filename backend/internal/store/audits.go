@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -49,8 +50,20 @@ type AuditLogInput struct {
 }
 
 type AuditLogFilter struct {
-	ClusterID string
-	Limit     int
+	ClusterID    string
+	Status       AuditStatus
+	Action       string
+	ResourceType string
+	Query        string
+	Page         int
+	PageSize     int
+}
+
+type AuditLogListResult struct {
+	Items    []AuditLogEntry `json:"items"`
+	Total    int             `json:"total"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
 }
 
 type AuditStore struct {
@@ -123,13 +136,57 @@ func (s *AuditStore) Record(ctx context.Context, input AuditLogInput) error {
 	return err
 }
 
-func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, error) {
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 20
+func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) (*AuditLogListResult, error) {
+	page := filter.Page
+	if page <= 0 {
+		page = 1
 	}
-	if limit > 100 {
-		limit = 100
+
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	whereParts := make([]string, 0, 5)
+	args := make([]any, 0, 8)
+
+	if clusterID := strings.TrimSpace(filter.ClusterID); clusterID != "" {
+		whereParts = append(whereParts, fmt.Sprintf("cluster_id = $%d", len(args)+1))
+		args = append(args, clusterID)
+	}
+
+	if status := strings.TrimSpace(string(filter.Status)); status != "" {
+		whereParts = append(whereParts, fmt.Sprintf("status = $%d", len(args)+1))
+		args = append(args, status)
+	}
+
+	if action := strings.TrimSpace(filter.Action); action != "" {
+		whereParts = append(whereParts, fmt.Sprintf("action = $%d", len(args)+1))
+		args = append(args, action)
+	}
+
+	if resourceType := strings.TrimSpace(filter.ResourceType); resourceType != "" {
+		whereParts = append(whereParts, fmt.Sprintf("resource_type = $%d", len(args)+1))
+		args = append(args, resourceType)
+	}
+
+	if queryValue := strings.TrimSpace(filter.Query); queryValue != "" {
+		pattern := "%" + queryValue + "%"
+		whereParts = append(whereParts, fmt.Sprintf("(resource_name ILIKE $%d OR message ILIKE $%d OR actor_name ILIKE $%d OR cluster_name ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1, len(args)+1))
+		args = append(args, pattern)
+	}
+
+	whereClause := ""
+	if len(whereParts) > 0 {
+		whereClause = " WHERE " + strings.Join(whereParts, " AND ")
+	}
+
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(1) FROM audit_logs`+whereClause, args...).Scan(&total); err != nil {
+		return nil, err
 	}
 
 	query := `
@@ -148,20 +205,9 @@ func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) ([]AuditLo
 			details::text,
 			created_at
 		FROM audit_logs
-	`
-	args := []any{}
-	if strings.TrimSpace(filter.ClusterID) != "" {
-		query += ` WHERE cluster_id = $1 `
-		args = append(args, strings.TrimSpace(filter.ClusterID))
-	}
-	query += ` ORDER BY created_at DESC LIMIT `
-	if len(args) == 0 {
-		query += `$1`
-		args = append(args, limit)
-	} else {
-		query += `$2`
-		args = append(args, limit)
-	}
+	` + whereClause + fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+
+	args = append(args, pageSize, (page-1)*pageSize)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -169,7 +215,7 @@ func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) ([]AuditLo
 	}
 	defer rows.Close()
 
-	entries := make([]AuditLogEntry, 0, limit)
+	entries := make([]AuditLogEntry, 0, pageSize)
 	for rows.Next() {
 		var entry AuditLogEntry
 		var status string
@@ -197,7 +243,16 @@ func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) ([]AuditLo
 		entries = append(entries, entry)
 	}
 
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &AuditLogListResult{
+		Items:    entries,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func marshalAuditDetails(details any) (json.RawMessage, error) {

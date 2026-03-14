@@ -221,6 +221,57 @@ func (s *WorkloadsService) Restart(
 	}
 }
 
+func (s *WorkloadsService) Delete(
+	ctx context.Context,
+	clusterID string,
+	scope string,
+	namespace string,
+	name string,
+) error {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return ErrWorkloadLiveClusterNeeded
+	case err != nil:
+		return err
+	}
+
+	switch scope {
+	case "deployments":
+		if err := clientset.AppsV1().Deployments(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return ErrWorkloadNotFound
+			}
+			return err
+		}
+	case "statefulsets":
+		if err := clientset.AppsV1().StatefulSets(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return ErrWorkloadNotFound
+			}
+			return err
+		}
+	case "daemonsets":
+		if err := clientset.AppsV1().DaemonSets(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return ErrWorkloadNotFound
+			}
+			return err
+		}
+	case "cronjobs":
+		if err := clientset.BatchV1().CronJobs(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return ErrWorkloadNotFound
+			}
+			return err
+		}
+	default:
+		return ErrWorkloadActionUnsupported
+	}
+
+	return nil
+}
+
 func (s *WorkloadsService) list(ctx context.Context, clusterID string, scope string) ([]WorkloadItem, error) {
 	items, _, err := s.listWithSource(ctx, clusterID, scope)
 	return items, err

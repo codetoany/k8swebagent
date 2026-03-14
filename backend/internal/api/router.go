@@ -110,6 +110,7 @@ func NewRouter(
 
 	router.Route("/api/pods", func(r chi.Router) {
 		r.Get("/", h.wrap(h.listPods))
+		r.Post("/{namespace}/{name}/restart", h.wrap(h.restartPod))
 		r.Get("/{namespace}/{name}/logs", h.wrap(h.podLogs))
 		r.Get("/{namespace}/{name}/metrics", h.wrap(h.podMetrics))
 		r.Get("/{namespace}/{name}", h.wrap(h.podDetail))
@@ -121,15 +122,19 @@ func NewRouter(
 		r.Get("/deployments/{namespace}/{name}", h.wrap(h.workloadDetail("deployments")))
 		r.Post("/deployments/{namespace}/{name}/scale", h.wrap(h.scaleWorkload("deployments")))
 		r.Post("/deployments/{namespace}/{name}/restart", h.wrap(h.restartWorkload("deployments")))
+		r.Delete("/deployments/{namespace}/{name}", h.wrap(h.deleteWorkload("deployments")))
 		r.Get("/statefulsets", h.wrap(h.listWorkload("statefulsets")))
 		r.Get("/statefulsets/{namespace}/{name}", h.wrap(h.workloadDetail("statefulsets")))
 		r.Post("/statefulsets/{namespace}/{name}/scale", h.wrap(h.scaleWorkload("statefulsets")))
 		r.Post("/statefulsets/{namespace}/{name}/restart", h.wrap(h.restartWorkload("statefulsets")))
+		r.Delete("/statefulsets/{namespace}/{name}", h.wrap(h.deleteWorkload("statefulsets")))
 		r.Get("/daemonsets", h.wrap(h.listWorkload("daemonsets")))
 		r.Get("/daemonsets/{namespace}/{name}", h.wrap(h.workloadDetail("daemonsets")))
 		r.Post("/daemonsets/{namespace}/{name}/restart", h.wrap(h.restartWorkload("daemonsets")))
+		r.Delete("/daemonsets/{namespace}/{name}", h.wrap(h.deleteWorkload("daemonsets")))
 		r.Get("/cronjobs", h.wrap(h.listWorkload("cronjobs")))
 		r.Get("/cronjobs/{namespace}/{name}", h.wrap(h.workloadDetail("cronjobs")))
+		r.Delete("/cronjobs/{namespace}/{name}", h.wrap(h.deleteWorkload("cronjobs")))
 	})
 
 	router.Route("/api/namespaces", func(r chi.Router) {
@@ -446,19 +451,29 @@ func (h *handler) testCluster(w http.ResponseWriter, r *http.Request) error {
 
 func (h *handler) listAuditLogs(w http.ResponseWriter, r *http.Request) error {
 	if h.auditStore == nil {
-		writeJSON(w, http.StatusOK, []store.AuditLogEntry{})
+		writeJSON(w, http.StatusOK, store.AuditLogListResult{
+			Items:    []store.AuditLogEntry{},
+			Total:    0,
+			Page:     1,
+			PageSize: 10,
+		})
 		return nil
 	}
 
-	entries, err := h.auditStore.List(r.Context(), store.AuditLogFilter{
-		ClusterID: strings.TrimSpace(r.URL.Query().Get("clusterId")),
-		Limit:     requestedLimit(r, 20),
+	result, err := h.auditStore.List(r.Context(), store.AuditLogFilter{
+		ClusterID:    strings.TrimSpace(r.URL.Query().Get("clusterId")),
+		Status:       store.AuditStatus(strings.TrimSpace(r.URL.Query().Get("status"))),
+		Action:       strings.TrimSpace(r.URL.Query().Get("action")),
+		ResourceType: strings.TrimSpace(r.URL.Query().Get("resourceType")),
+		Query:        strings.TrimSpace(r.URL.Query().Get("query")),
+		Page:         requestedPage(r, 1),
+		PageSize:     requestedLimit(r, 10),
 	})
 	if err != nil {
 		return err
 	}
 
-	writeJSON(w, http.StatusOK, entries)
+	writeJSON(w, http.StatusOK, result)
 	return nil
 }
 
@@ -654,6 +669,51 @@ func (h *handler) restartWorkload(scope string) routeHandler {
 			Message:      "Restart triggered",
 		})
 		writeJSON(w, http.StatusOK, item)
+		return nil
+	}
+}
+
+func (h *handler) deleteWorkload(scope string) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		clusterID := requestedClusterID(r)
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+
+		if err := h.workloadsService.Delete(r.Context(), clusterID, scope, namespace, name); err != nil {
+			h.recordAudit(r.Context(), r, store.AuditLogInput{
+				Action:       "workload.delete",
+				ResourceType: scope,
+				ResourceName: name,
+				Namespace:    namespace,
+				ClusterID:    clusterID,
+				Status:       store.AuditStatusFailed,
+				Message:      errorMessageForAudit(err),
+			})
+			switch {
+			case errors.Is(err, service.ErrWorkloadNotFound):
+				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+			case errors.Is(err, service.ErrWorkloadActionUnsupported):
+				return newHTTPError(http.StatusBadRequest, "current workload type does not support delete")
+			case errors.Is(err, service.ErrWorkloadLiveClusterNeeded):
+				return newHTTPError(http.StatusBadRequest, "current cluster is not connected to a live Kubernetes cluster")
+			default:
+				return err
+			}
+		}
+
+		h.invalidateReadonlyCache(r.Context(), clusterID)
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "workload.delete",
+			ResourceType: scope,
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusSuccess,
+			Message:      "Workload deleted",
+		})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"message": "Workload deleted",
+		})
 		return nil
 	}
 }
@@ -854,6 +914,49 @@ func (h *handler) deletePod(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) restartPod(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+
+	if err := h.podsService.Restart(r.Context(), clusterID, namespace, name); err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "pod.restart",
+			ResourceType: "pod",
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
+		switch {
+		case errors.Is(err, service.ErrPodNotFound):
+			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+		case errors.Is(err, service.ErrPodRestartUnsupported):
+			return newHTTPError(http.StatusBadRequest, "pod restart requires a controller-managed pod")
+		case errors.Is(err, service.ErrPodLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "current cluster is not connected to a live Kubernetes cluster")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "pod.restart",
+		ResourceType: "pod",
+		ResourceName: name,
+		Namespace:    namespace,
+		ClusterID:    clusterID,
+		Status:       store.AuditStatusSuccess,
+		Message:      "Pod restart triggered",
+	})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Pod restart triggered",
+	})
+	return nil
+}
+
 func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error {
 	clusterID := requestedClusterID(r)
 	name := chi.URLParam(r, "name")
@@ -986,6 +1089,20 @@ func findListItem(payload json.RawMessage, match func(namedMeta) bool) (json.Raw
 
 func requestedLimit(r *http.Request, fallback int) int {
 	value := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
+}
+
+func requestedPage(r *http.Request, fallback int) int {
+	value := strings.TrimSpace(r.URL.Query().Get("page"))
 	if value == "" {
 		return fallback
 	}

@@ -25,6 +25,7 @@ export const podsAPI = {
   getPodLogs: "/pods/:namespace/:name/logs",
   getPodMetrics: "/pods/:namespace/:name/metrics",
   deletePod: "/pods/:namespace/:name",
+  restartPod: "/pods/:namespace/:name/restart",
 };
 
 export const workloadsAPI = {
@@ -32,15 +33,19 @@ export const workloadsAPI = {
   getDeploymentDetail: "/deployments/:namespace/:name",
   scaleDeployment: "/deployments/:namespace/:name/scale",
   restartDeployment: "/deployments/:namespace/:name/restart",
+  deleteDeployment: "/deployments/:namespace/:name",
   listStatefulSets: "/statefulsets",
   getStatefulSetDetail: "/statefulsets/:namespace/:name",
   scaleStatefulSet: "/statefulsets/:namespace/:name/scale",
   restartStatefulSet: "/statefulsets/:namespace/:name/restart",
+  deleteStatefulSet: "/statefulsets/:namespace/:name",
   listDaemonSets: "/daemonsets",
   getDaemonSetDetail: "/daemonsets/:namespace/:name",
   restartDaemonSet: "/daemonsets/:namespace/:name/restart",
+  deleteDaemonSet: "/daemonsets/:namespace/:name",
   listCronJobs: "/cronjobs",
   getCronJobDetail: "/cronjobs/:namespace/:name",
+  deleteCronJob: "/cronjobs/:namespace/:name",
 };
 
 export const namespacesAPI = {

@@ -49,13 +49,18 @@ rules:
       - deployments
       - statefulsets
       - daemonsets
-    verbs: ["patch", "update"]
+    verbs: ["patch", "update", "delete"]
 
   - apiGroups: ["batch"]
     resources:
       - cronjobs
       - jobs
     verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+    verbs: ["delete"]
 
   - apiGroups: ["events.k8s.io"]
     resources:

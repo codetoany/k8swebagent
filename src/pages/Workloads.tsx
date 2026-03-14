@@ -66,6 +66,13 @@ const restartEndpoints: Record<string, string> = {
   daemonset: workloadsAPI.restartDaemonSet,
 };
 
+const deleteEndpoints: Record<string, string> = {
+  deployment: workloadsAPI.deleteDeployment,
+  statefulset: workloadsAPI.deleteStatefulSet,
+  daemonset: workloadsAPI.deleteDaemonSet,
+  cronjob: workloadsAPI.deleteCronJob,
+};
+
 const normalizeWorkload = (item: any, type: string) => ({
   ...item,
   type,
@@ -137,6 +144,8 @@ const Workloads = () => {
     Object.prototype.hasOwnProperty.call(scaleEndpoints, type);
   const supportsRestart = (type: string) =>
     Object.prototype.hasOwnProperty.call(restartEndpoints, type);
+  const supportsDelete = (type: string) =>
+    Object.prototype.hasOwnProperty.call(deleteEndpoints, type);
 
   useEffect(() => {
     let active = true;
@@ -333,6 +342,57 @@ const Workloads = () => {
   };
 
   // 过滤和排序工作负载
+  const handleDeleteWorkload = async (workload: any) => {
+    const endpointTemplate = deleteEndpoints[workload.type];
+    if (!endpointTemplate) {
+      toast.error("Delete is not supported for this workload type");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm delete for ${workload.name} in ${workload.namespace}?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${workload.type}:${workload.namespace}:${workload.name}:delete`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(endpointTemplate, {
+        namespace: workload.namespace,
+        name: workload.name,
+      });
+      await apiClient.delete<{ message: string }>(endpoint, { params: clusterParams });
+      setWorkloads((current) =>
+        current.filter(
+          (item) =>
+            !(
+              item.type === workload.type &&
+              item.namespace === workload.namespace &&
+              item.name === workload.name
+            ),
+        ),
+      );
+      setSelectedWorkload((current: any) => {
+        if (
+          current &&
+          current.type === workload.type &&
+          current.namespace === workload.namespace &&
+          current.name === workload.name
+        ) {
+          return null;
+        }
+
+        return current;
+      });
+      toast.success(`${workload.name} deleted`);
+    } finally {
+      setActionLoadingKey("");
+    }
+  };
+
   const filteredAndSortedWorkloads = workloads
     .filter((workload) => {
       const matchesSearch =
@@ -442,10 +502,13 @@ const Workloads = () => {
 
     const scaleSupported = supportsScaling(selectedWorkload.type);
     const restartSupported = supportsRestart(selectedWorkload.type);
+    const deleteSupported = supportsDelete(selectedWorkload.type);
     const scaleActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:scale`;
     const restartActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:restart`;
+    const deleteActionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:delete`;
     const scaling = actionLoadingKey === scaleActionKey;
     const restarting = actionLoadingKey === restartActionKey;
+    const deleting = actionLoadingKey === deleteActionKey;
 
     return (
       <motion.div
@@ -639,10 +702,23 @@ const Workloads = () => {
                       }`}
                       disabled
                     >
+                      Edit
+                    </button>
+                    <button
+                      className={`px-3 py-1.5 rounded text-[0px] font-medium transition-opacity before:content-['Delete'] before:text-xs before:font-medium before:text-current ${
+                        deleteSupported
+                          ? `${theme === "dark" ? "bg-red-600 hover:bg-red-700" : "bg-red-500 hover:bg-red-600"} text-white`
+                          : theme === "dark"
+                            ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                            : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      }`}
+                      onClick={() => void handleDeleteWorkload(selectedWorkload)}
+                      disabled={!deleteSupported || scaling || restarting || deleting}
+                    >
                       编辑
                     </button>
                     <button
-                      className={`px-3 py-1.5 rounded text-xs font-medium ${
+                      className={`hidden px-3 py-1.5 rounded text-xs font-medium ${
                         theme === "dark"
                           ? "bg-gray-700 text-gray-400 cursor-not-allowed"
                           : "bg-gray-200 text-gray-500 cursor-not-allowed"

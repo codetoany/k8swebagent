@@ -18,6 +18,7 @@
   import apiClient from '@/lib/apiClient';
   import { auditAPI, clustersAPI, replacePathParams, settingsAPI } from '@/lib/api';
   import { type ClusterConfig, type ClusterMode, createEmptyClusterConfig } from '@/lib/clusters';
+  import TablePagination from '@/components/TablePagination';
 
   // 定义设置选项类型
   type ThemeOption = 'light' | 'dark' | 'system';
@@ -49,6 +50,13 @@
     createdAt: string;
   }
 
+  interface AuditLogListResponse {
+    items: AuditLogEntry[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }
+
   type ClusterEditorMode = 'create' | 'edit';
 
   const SettingsPage = () => {
@@ -78,6 +86,13 @@
     const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
     const [auditLogsLoading, setAuditLogsLoading] = useState(false);
     const [auditRefreshNonce, setAuditRefreshNonce] = useState(0);
+    const [auditTotal, setAuditTotal] = useState(0);
+    const [auditCurrentPage, setAuditCurrentPage] = useState(1);
+    const [auditPageSize, setAuditPageSize] = useState(10);
+    const [auditStatusFilter, setAuditStatusFilter] = useState('');
+    const [auditActionFilter, setAuditActionFilter] = useState('');
+    const [auditResourceTypeFilter, setAuditResourceTypeFilter] = useState('');
+    const [auditQuery, setAuditQuery] = useState('');
     
     // AI模型相关状态
     const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -231,6 +246,32 @@
       };
     };
 
+    const auditActionOptions = [
+      { value: '', label: '全部动作' },
+      { value: 'cluster.create', label: '新增集群' },
+      { value: 'cluster.update', label: '更新集群' },
+      { value: 'cluster.delete', label: '删除集群' },
+      { value: 'cluster.test', label: '测试连接' },
+      { value: 'workload.scale', label: '扩缩容' },
+      { value: 'workload.restart', label: '重启工作负载' },
+      { value: 'workload.delete', label: '删除工作负载' },
+      { value: 'pod.delete', label: '删除 Pod' },
+      { value: 'pod.restart', label: '重启 Pod' },
+      { value: 'node.cordon', label: '节点禁止调度' },
+      { value: 'node.uncordon', label: '节点恢复调度' },
+    ];
+
+    const auditResourceTypeOptions = [
+      { value: '', label: '全部资源' },
+      { value: 'cluster', label: '集群' },
+      { value: 'pod', label: 'Pod' },
+      { value: 'node', label: '节点' },
+      { value: 'deployments', label: 'Deployment' },
+      { value: 'statefulsets', label: 'StatefulSet' },
+      { value: 'daemonsets', label: 'DaemonSet' },
+      { value: 'cronjobs', label: 'CronJob' },
+    ];
+
     const openClusterEditor = (mode: ClusterEditorMode, cluster?: Partial<ClusterConfig> | null) => {
       setClusterEditorMode(mode);
       applyClusterConfig(cluster, false);
@@ -318,16 +359,22 @@
 
         setAuditLogsLoading(true);
         try {
-          const logs = await apiClient.get<AuditLogEntry[]>(
+          const logs = await apiClient.get<AuditLogListResponse>(
             auditAPI.listAuditLogs,
             {
-              limit: 10,
+              page: auditCurrentPage,
+              limit: auditPageSize,
               ...(selectedClusterConfigId ? { clusterId: selectedClusterConfigId } : {}),
+              ...(auditStatusFilter ? { status: auditStatusFilter } : {}),
+              ...(auditActionFilter ? { action: auditActionFilter } : {}),
+              ...(auditResourceTypeFilter ? { resourceType: auditResourceTypeFilter } : {}),
+              ...(auditQuery.trim() ? { query: auditQuery.trim() } : {}),
             },
           );
 
           if (active) {
-            setAuditLogs(Array.isArray(logs) ? logs : []);
+            setAuditLogs(Array.isArray(logs?.items) ? logs.items : []);
+            setAuditTotal(logs?.total ?? 0);
           }
         } finally {
           if (active) {
@@ -341,7 +388,29 @@
       return () => {
         active = false;
       };
-    }, [activeTab, selectedClusterConfigId, auditRefreshNonce]);
+    }, [
+      activeTab,
+      selectedClusterConfigId,
+      auditRefreshNonce,
+      auditCurrentPage,
+      auditPageSize,
+      auditStatusFilter,
+      auditActionFilter,
+      auditResourceTypeFilter,
+      auditQuery,
+    ]);
+
+    useEffect(() => {
+      setAuditCurrentPage(1);
+    }, [
+      activeTab,
+      selectedClusterConfigId,
+      auditStatusFilter,
+      auditActionFilter,
+      auditResourceTypeFilter,
+      auditQuery,
+      auditPageSize,
+    ]);
 
     // 处理登出
     const handleLogout = () => {
@@ -1415,7 +1484,94 @@
                               </button>
                             </div>
 
-                            <div className="mt-4 space-y-3">
+                            <div className="mt-4 space-y-4">
+                              <div className="grid gap-3 md:grid-cols-4">
+                                <div className="md:col-span-2">
+                                  <input
+                                    type="text"
+                                    value={auditQuery}
+                                    onChange={(event) => setAuditQuery(event.target.value)}
+                                    placeholder="搜索资源名称、结果信息或操作者"
+                                    className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                      theme === 'dark'
+                                        ? 'border-gray-600 bg-gray-900 text-white'
+                                        : 'border-gray-200 bg-white text-gray-900'
+                                    }`}
+                                  />
+                                </div>
+                                <select
+                                  value={auditStatusFilter}
+                                  onChange={(event) => setAuditStatusFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  <option value="">全部结果</option>
+                                  <option value="success">成功</option>
+                                  <option value="failed">失败</option>
+                                </select>
+                                <select
+                                  value={auditActionFilter}
+                                  onChange={(event) => setAuditActionFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  {auditActionOptions.map((option) => (
+                                    <option key={option.value || 'all'} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-4">
+                                <select
+                                  value={auditResourceTypeFilter}
+                                  onChange={(event) => setAuditResourceTypeFilter(event.target.value)}
+                                  className={`rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                                    theme === 'dark'
+                                      ? 'border-gray-600 bg-gray-900 text-white'
+                                      : 'border-gray-200 bg-white text-gray-900'
+                                  }`}
+                                >
+                                  {auditResourceTypeOptions.map((option) => (
+                                    <option key={option.value || 'all'} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="md:col-span-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
+                                  theme === 'dark'
+                                    ? 'border-gray-700 bg-gray-900/40 text-gray-400'
+                                    : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }">
+                                  <span>当前集群过滤：{selectedClusterConfigId || '全部集群'}</span>
+                                  {(auditQuery || auditStatusFilter || auditActionFilter || auditResourceTypeFilter) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAuditQuery('');
+                                        setAuditStatusFilter('');
+                                        setAuditActionFilter('');
+                                        setAuditResourceTypeFilter('');
+                                      }}
+                                      className={`rounded-lg px-2 py-1 ${
+                                        theme === 'dark'
+                                          ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                          : 'bg-white text-gray-700 hover:bg-gray-100'
+                                      }`}
+                                    >
+                                      清空筛选
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
                               {auditLogsLoading ? (
                                 <div className={`rounded-lg border px-4 py-6 text-sm ${
                                   theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
@@ -1471,6 +1627,19 @@
                                 })
                               )}
                             </div>
+                            {!auditLogsLoading && auditTotal > 0 && (
+                              <TablePagination
+                                theme={theme}
+                                currentPage={auditCurrentPage}
+                                pageSize={auditPageSize}
+                                totalItems={auditTotal}
+                                onPageChange={setAuditCurrentPage}
+                                onPageSizeChange={(size) => {
+                                  setAuditPageSize(size);
+                                  setAuditCurrentPage(1);
+                                }}
+                              />
+                            )}
                           </div>
                         </>
                       )}

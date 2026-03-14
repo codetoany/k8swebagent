@@ -178,6 +178,38 @@ const Pods = () => {
   };
 
   // 过滤和排序 Pods
+  const handleRestartPod = async (pod: any) => {
+    const confirmed = window.confirm(`Confirm restart for Pod "${pod.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${pod.namespace}:${pod.name}:restart`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(podsAPI.restartPod, {
+        namespace: pod.namespace,
+        name: pod.name,
+      });
+      await apiClient.post<{ message: string }>(endpoint, undefined, { params: clusterParams });
+      setPods((current) =>
+        current.filter((item) => !(item.namespace === pod.namespace && item.name === pod.name)),
+      );
+      setSelectedPod((current: any) => {
+        if (current && current.namespace === pod.namespace && current.name === pod.name) {
+          return null;
+        }
+
+        return current;
+      });
+      setPodLogs([]);
+      toast.success(`Restart triggered for ${pod.name}`);
+    } finally {
+      setActionLoadingKey('');
+    }
+  };
+
   const filteredAndSortedPods = pods
     .filter(pod => {
       const matchesSearch = 
@@ -451,6 +483,21 @@ const Pods = () => {
               >
                 <RefreshCw size={16} className={`inline mr-1 ${logsLoading ? 'animate-spin' : ''}`} />
                 刷新日志
+              </button>
+              <button
+                className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'} text-white text-sm`}
+                onClick={() => void handleRestartPod(selectedPod)}
+                disabled={actionLoadingKey === `${selectedPod.namespace}:${selectedPod.name}:restart`}
+              >
+                <RefreshCw
+                  size={16}
+                  className={`inline mr-1 ${
+                    actionLoadingKey === `${selectedPod.namespace}:${selectedPod.name}:restart` ? 'animate-spin' : ''
+                  }`}
+                />
+                {actionLoadingKey === `${selectedPod.namespace}:${selectedPod.name}:restart`
+                  ? 'Restarting...'
+                  : 'Restart Pod'}
               </button>
               <button
                 className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'} text-white text-sm`}

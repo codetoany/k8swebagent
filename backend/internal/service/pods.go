@@ -20,6 +20,7 @@ import (
 var (
 	ErrPodNotFound          = errors.New("pod not found")
 	ErrPodLiveClusterNeeded = errors.New("pod action requires a live cluster")
+	ErrPodRestartUnsupported = errors.New("pod restart requires a controller-managed pod")
 )
 
 type PodsService struct {
@@ -172,6 +173,37 @@ func (s *PodsService) Delete(ctx context.Context, clusterID string, namespace st
 	return nil
 }
 
+func (s *PodsService) Restart(ctx context.Context, clusterID string, namespace string, name string) error {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return ErrPodLiveClusterNeeded
+	case err != nil:
+		return err
+	}
+
+	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		return ErrPodNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	if !hasControllerOwner(pod.OwnerReferences) {
+		return ErrPodRestartUnsupported
+	}
+
+	if err := clientset.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return ErrPodNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (s *PodsService) list(ctx context.Context, clusterID string) ([]PodListItem, error) {
 	pods, _, err := s.listWithSource(ctx, clusterID)
 	return pods, err
@@ -286,6 +318,16 @@ func mapPod(pod corev1.Pod) PodListItem {
 		MemoryUsage: memoryMi(memoryRequest.Value()),
 		Labels:      copyStringMap(pod.Labels),
 	}
+}
+
+func hasControllerOwner(references []metav1.OwnerReference) bool {
+	for _, reference := range references {
+		if reference.Controller != nil && *reference.Controller {
+			return true
+		}
+	}
+
+	return false
 }
 
 func mapPodContainers(pod corev1.Pod) []PodContainer {

@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	SettingsKeySystem   = "system"
-	SettingsKeyAIModels = "ai-models"
+	SettingsKeySystem             = "system"
+	SettingsKeyAIModels           = "ai-models"
+	SettingsKeyNotificationsState = "notifications-state"
 )
 
 var defaultSettingsPayloads = map[string]json.RawMessage{
@@ -46,6 +47,9 @@ var defaultSettingsPayloads = map[string]json.RawMessage{
     "isDefault": false
   }
 ]`),
+	SettingsKeyNotificationsState: json.RawMessage(`{
+  "lastReadAt": ""
+}`),
 }
 
 type SettingsStore struct {

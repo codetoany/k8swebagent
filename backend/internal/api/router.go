@@ -96,6 +96,11 @@ func NewRouter(
 		r.Get("/", h.wrap(h.listAuditLogs))
 	})
 
+	router.Route("/api/notifications", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listNotifications))
+		r.Post("/read-all", h.wrap(h.markAllNotificationsRead))
+	})
+
 	router.Route("/api/dashboard", func(r chi.Router) {
 		r.Get("/overview", h.wrap(h.dashboardOverview))
 		r.Get("/resource-usage", h.wrap(h.dashboardResourceUsage))
@@ -485,6 +490,60 @@ func (h *handler) listAuditLogs(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) error {
+	settings, err := h.currentSystemSettings(r.Context())
+	if err != nil {
+		return err
+	}
+
+	state, err := h.currentNotificationState(r.Context())
+	if err != nil {
+		return err
+	}
+
+	if settings.Notifications.Level == "none" || h.auditStore == nil {
+		writeJSON(w, http.StatusOK, notificationListResponse{
+			Items:       []notificationItemResponse{},
+			UnreadCount: 0,
+			Total:       0,
+			LastReadAt:  state.LastReadAt,
+		})
+		return nil
+	}
+
+	audits, err := h.auditStore.List(r.Context(), store.AuditLogFilter{
+		ClusterID: strings.TrimSpace(r.URL.Query().Get("clusterId")),
+		Page:      1,
+		PageSize:  100,
+	})
+	if err != nil {
+		return err
+	}
+
+	limit := requestedLimit(r, 12)
+	notifications, unreadCount, total := buildNotifications(audits.Items, settings.Notifications, state.LastReadAt, limit)
+
+	writeJSON(w, http.StatusOK, notificationListResponse{
+		Items:       notifications,
+		UnreadCount: unreadCount,
+		Total:       total,
+		LastReadAt:  state.LastReadAt,
+	})
+	return nil
+}
+
+func (h *handler) markAllNotificationsRead(w http.ResponseWriter, r *http.Request) error {
+	state := notificationStateDocument{
+		LastReadAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := h.saveNotificationState(r.Context(), state); err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, state)
 	return nil
 }
 
@@ -1449,6 +1508,32 @@ type notificationSettingsDocument struct {
 	EnabledTypes []string `json:"enabledTypes"`
 }
 
+type notificationStateDocument struct {
+	LastReadAt string `json:"lastReadAt"`
+}
+
+type notificationItemResponse struct {
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	Level        string    `json:"level"`
+	Title        string    `json:"title"`
+	Message      string    `json:"message"`
+	Action       string    `json:"action"`
+	ResourceType string    `json:"resourceType"`
+	ResourceName string    `json:"resourceName"`
+	ClusterID    string    `json:"clusterId,omitempty"`
+	ClusterName  string    `json:"clusterName,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Read         bool      `json:"read"`
+}
+
+type notificationListResponse struct {
+	Items       []notificationItemResponse `json:"items"`
+	UnreadCount int                        `json:"unreadCount"`
+	Total       int                        `json:"total"`
+	LastReadAt  string                     `json:"lastReadAt,omitempty"`
+}
+
 type systemSettingsDocument struct {
 	Theme                     string                       `json:"theme"`
 	Language                  string                       `json:"language"`
@@ -1850,6 +1935,30 @@ func (h *handler) saveAIModels(ctx context.Context, models []aiModelPayload) err
 	return nil
 }
 
+func (h *handler) currentNotificationState(ctx context.Context) (notificationStateDocument, error) {
+	raw, err := h.readSettingsPayload(ctx, store.SettingsKeyNotificationsState)
+	if err != nil {
+		return notificationStateDocument{}, err
+	}
+	if len(raw) == 0 {
+		return notificationStateDocument{}, nil
+	}
+
+	var state notificationStateDocument
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return notificationStateDocument{}, err
+	}
+
+	return state, nil
+}
+
+func (h *handler) saveNotificationState(ctx context.Context, state notificationStateDocument) error {
+	if h.settingsStore != nil {
+		return h.settingsStore.Put(ctx, store.SettingsKeyNotificationsState, state)
+	}
+	return nil
+}
+
 func (h *handler) readSettingsPayload(ctx context.Context, key string) (json.RawMessage, error) {
 	if h.settingsStore != nil {
 		payload, err := h.settingsStore.Get(ctx, key)
@@ -1862,6 +1971,121 @@ func (h *handler) readSettingsPayload(ctx context.Context, key string) (json.Raw
 	}
 
 	return h.store.Get(ctx, "settings", key)
+}
+
+func buildNotifications(entries []store.AuditLogEntry, settings notificationSettingsDocument, lastReadAt string, limit int) ([]notificationItemResponse, int, int) {
+	if limit <= 0 {
+		limit = 12
+	}
+
+	var lastRead time.Time
+	if trimmed := strings.TrimSpace(lastReadAt); trimmed != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, trimmed)
+		if err == nil {
+			lastRead = parsed
+		}
+	}
+
+	enabledKinds := map[string]struct{}{}
+	for _, item := range settings.EnabledTypes {
+		enabledKinds[strings.TrimSpace(item)] = struct{}{}
+	}
+
+	notifications := make([]notificationItemResponse, 0, limit)
+	unreadCount := 0
+	total := 0
+	for _, entry := range entries {
+		kind, ok := notificationKindForAudit(entry)
+		if !ok {
+			continue
+		}
+		if len(enabledKinds) > 0 {
+			if _, exists := enabledKinds[kind]; !exists {
+				continue
+			}
+		}
+
+		level := notificationLevelForAudit(entry)
+		if settings.Level == "critical" && level != "critical" {
+			continue
+		}
+
+		item := notificationItemResponse{
+			ID:           entry.ID,
+			Kind:         kind,
+			Level:        level,
+			Title:        notificationTitleForAudit(entry),
+			Message:      strings.TrimSpace(entry.Message),
+			Action:       entry.Action,
+			ResourceType: entry.ResourceType,
+			ResourceName: entry.ResourceName,
+			ClusterID:    entry.ClusterID,
+			ClusterName:  entry.ClusterName,
+			CreatedAt:    entry.CreatedAt,
+			Read:         !lastRead.IsZero() && !entry.CreatedAt.After(lastRead),
+		}
+		total++
+		if !item.Read {
+			unreadCount++
+		}
+		if len(notifications) < limit {
+			notifications = append(notifications, item)
+		}
+	}
+
+	return notifications, unreadCount, total
+}
+
+func notificationKindForAudit(entry store.AuditLogEntry) (string, bool) {
+	switch strings.TrimSpace(entry.ResourceType) {
+	case "node":
+		return "node", true
+	case "pod":
+		return "pod", true
+	case "deployments", "statefulsets", "daemonsets", "cronjobs":
+		return "workload", true
+	default:
+		return "", false
+	}
+}
+
+func notificationLevelForAudit(entry store.AuditLogEntry) string {
+	if entry.Status == store.AuditStatusFailed {
+		return "critical"
+	}
+	return "info"
+}
+
+func notificationTitleForAudit(entry store.AuditLogEntry) string {
+	switch entry.Action {
+	case "node.cordon":
+		return "节点已设为不可调度"
+	case "node.uncordon":
+		return "节点已恢复调度"
+	case "node.maintenance.enable":
+		return "节点维护模式已开启"
+	case "node.maintenance.disable":
+		return "节点维护模式已关闭"
+	case "pod.restart":
+		return "Pod 已重启"
+	case "pod.delete":
+		return "Pod 已删除"
+	case "workload.scale":
+		return "工作负载副本已更新"
+	case "workload.restart":
+		return "工作负载已重启"
+	case "workload.delete":
+		return "工作负载已删除"
+	case "workload.pause":
+		return "工作负载已暂停"
+	case "workload.resume":
+		return "工作负载已恢复"
+	default:
+		if entry.Status == store.AuditStatusFailed {
+			return "集群操作失败"
+		}
+		return "集群操作通知"
+	}
 }
 
 func toClusterResponse(cluster store.Cluster) clusterResponse {

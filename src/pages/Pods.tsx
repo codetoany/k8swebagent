@@ -18,12 +18,13 @@ import apiClient from '@/lib/apiClient';
 import { namespacesAPI, podsAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
+import NotificationCenter from '@/components/NotificationCenter';
 
 const podsData: any[] = [];
 const namespaces = ['全部'];
 
 const Pods = () => {
-  const { theme, toggleTheme } = useThemeContext();
+  const { theme, toggleTheme, isDark } = useThemeContext();
   const {
     enabledClusters,
     loading: clustersLoading,
@@ -46,6 +47,7 @@ const Pods = () => {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsRefreshNonce, setLogsRefreshNonce] = useState(0);
   const [actionLoadingKey, setActionLoadingKey] = useState('');
+  const currentTheme = isDark ? 'dark' : 'light';
 
   const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
 
@@ -625,10 +627,7 @@ const Pods = () => {
               >
                 {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
               </button>
-              <button className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} relative`}>
-                <Bell size={20} />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter />
             </div>
           </div>
         </header>
@@ -672,7 +671,7 @@ const Pods = () => {
                 </div>
                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                   <ClusterSelector
-                    theme={theme}
+                    theme={currentTheme}
                     clusters={enabledClusters}
                     value={selectedCluster?.id || ''}
                     loading={clustersLoading}
@@ -876,7 +875,7 @@ const Pods = () => {
 
                 {filteredAndSortedPods.length > 0 && (
                   <TablePagination
-                    theme={theme}
+                    theme={currentTheme}
                     currentPage={currentPage}
                     pageSize={pageSize}
                     totalItems={filteredAndSortedPods.length}

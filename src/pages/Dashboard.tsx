@@ -7,6 +7,7 @@ import { AuthContext } from '@/contexts/authContext';
 import { useClusterContext } from '@/contexts/clusterContext';
 import { useThemeContext } from '@/contexts/themeContext';
 import ClusterSelector from '@/components/ClusterSelector';
+import NotificationCenter from '@/components/NotificationCenter';
 import { dashboardAPI } from '@/lib/api';
 import { ApiError } from '@/lib/apiClient';
 import apiClient from '@/lib/apiClient';
@@ -21,7 +22,7 @@ type DashboardEvent = { id: string; type: string; reason: string; timestamp: str
 const EMPTY_OVERVIEW: Overview = { totalNodes: 0, onlineNodes: 0, offlineNodes: 0, totalPods: 0, runningPods: 0, failedPods: 0, pausedPods: 0, totalWorkloads: 0, cpuUsage: 0, memoryUsage: 0, diskUsage: 0 };
 
 const Dashboard = () => {
-  const { theme, toggleTheme } = useThemeContext();
+  const { theme, toggleTheme, isDark } = useThemeContext();
   const { enabledClusters, loading: clustersLoading, selectedCluster, setSelectedClusterId } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
@@ -35,6 +36,7 @@ const Dashboard = () => {
   const [namespaceChartData, setNamespaceChartData] = useState<NamespaceDistribution[]>([]);
   const [recentEvents, setRecentEvents] = useState<DashboardEvent[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const currentTheme = isDark ? 'dark' : 'light';
 
   const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: 0.5, staggerChildren: 0.1 } } };
   const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1, transition: { duration: 0.3 } } };
@@ -76,9 +78,10 @@ const Dashboard = () => {
 
   useEffect(() => {
     let active = true;
-    const requestParams = selectedCluster?.id
-      ? { clusterId: selectedCluster.id, range: timeRange }
-      : { range: timeRange };
+    const requestParams: Record<string, string> = { range: timeRange };
+    if (selectedCluster?.id) {
+      requestParams.clusterId = selectedCluster.id;
+    }
 
     const loadResourceUsage = async () => {
       setResourceUsageLoading(true);
@@ -262,7 +265,7 @@ const Dashboard = () => {
             </div>
             <div className="flex items-center space-x-3">
               <button onClick={toggleTheme} className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`} aria-label={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</button>
-              <button className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} relative`}><Bell size={20} /><span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span></button>
+              <NotificationCenter />
             </div>
           </div>
         </header>
@@ -277,7 +280,7 @@ const Dashboard = () => {
             <motion.div initial="hidden" animate="visible" variants={containerVariants} className="space-y-6">
               <motion.div variants={itemVariants} className={`p-4 rounded-xl flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${cardShell}`}>
                 <div><h2 className="text-lg font-semibold">当前资源集群</h2><p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{selectedCluster?.name || '未选择集群'}</p></div>
-                <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedCluster?.id || ''} loading={clustersLoading} onChange={setSelectedClusterId} className="w-full md:w-64" />
+                <ClusterSelector theme={currentTheme} clusters={enabledClusters} value={selectedCluster?.id || ''} loading={clustersLoading} onChange={setSelectedClusterId} className="w-full md:w-64" />
               </motion.div>
 
               {dashboardError && (

@@ -84,6 +84,11 @@ export const auditAPI = {
   listAuditLogs: "/audit-logs",
 };
 
+export const notificationsAPI = {
+  listNotifications: "/notifications",
+  markAllRead: "/notifications/read-all",
+};
+
 export function replacePathParams(
   path: string,
   params: Record<string, string | number>,

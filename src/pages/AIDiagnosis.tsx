@@ -13,6 +13,7 @@ import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Toaster, toast } from 'sonner';
+import NotificationCenter from '@/components/NotificationCenter';
 
 // 消息类型定义
 interface Message {
@@ -405,10 +406,7 @@ interface DiagnosisHistory {
               >
                 {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
               </button>
-              <button className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} relative`}>
-                <Bell size={20} />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter />
             </div>
           </div>
         </header>

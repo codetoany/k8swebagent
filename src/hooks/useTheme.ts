@@ -43,9 +43,9 @@ export function useTheme() {
 
   const toggleTheme = useCallback(() => {
     setTheme(prevTheme => {
-      if (prevTheme === 'light') return 'dark';
-      if (prevTheme === 'dark') return 'system';
-      return 'light';
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isCurrentlyDark = prevTheme === 'system' ? prefersDark : prevTheme === 'dark';
+      return isCurrentlyDark ? 'light' : 'dark';
     });
   }, []);
 

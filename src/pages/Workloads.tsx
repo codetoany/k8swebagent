@@ -41,6 +41,7 @@ import apiClient from "@/lib/apiClient";
 import { namespacesAPI, replacePathParams, workloadsAPI } from "@/lib/api";
 import ClusterSelector from "@/components/ClusterSelector";
 import TablePagination from "@/components/TablePagination";
+import NotificationCenter from "@/components/NotificationCenter";
 
 const workloadsData: any[] = [];
 
@@ -93,7 +94,7 @@ const normalizeWorkload = (item: any, type: string) => ({
 });
 
 const Workloads = () => {
-  const { theme, toggleTheme } = useThemeContext();
+  const { theme, toggleTheme, isDark } = useThemeContext();
   const {
     enabledClusters,
     loading: clustersLoading,
@@ -117,6 +118,7 @@ const Workloads = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [actionLoadingKey, setActionLoadingKey] = useState("");
+  const currentTheme = isDark ? "dark" : "light";
   const [scaleEditorOpen, setScaleEditorOpen] = useState(false);
   const [scaleReplicas, setScaleReplicas] = useState("");
 
@@ -1060,12 +1062,7 @@ const Workloads = () => {
               >
                 {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
               </button>
-              <button
-                className={`p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"} relative`}
-              >
-                <Bell size={20} />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              <NotificationCenter />
             </div>
           </div>
         </header>
@@ -1127,7 +1124,7 @@ const Workloads = () => {
                 </div>
                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                   <ClusterSelector
-                    theme={theme}
+                    theme={currentTheme}
                     clusters={enabledClusters}
                     value={selectedCluster?.id || ""}
                     loading={clustersLoading}
@@ -1453,7 +1450,7 @@ const Workloads = () => {
 
                 {filteredAndSortedWorkloads.length > 0 && (
                   <TablePagination
-                    theme={theme}
+                    theme={currentTheme}
                     currentPage={currentPage}
                     pageSize={pageSize}
                     totalItems={filteredAndSortedWorkloads.length}

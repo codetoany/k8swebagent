@@ -19,6 +19,7 @@
   import { auditAPI, clustersAPI, replacePathParams, settingsAPI } from '@/lib/api';
   import { type ClusterConfig, type ClusterMode, createEmptyClusterConfig } from '@/lib/clusters';
   import TablePagination from '@/components/TablePagination';
+  import NotificationCenter from '@/components/NotificationCenter';
 
   // 定义设置选项类型
   type ThemeOption = 'light' | 'dark' | 'system';
@@ -94,7 +95,7 @@
   type ClusterEditorMode = 'create' | 'edit';
 
   const SettingsPage = () => {
-    const { theme, setTheme, toggleTheme } = useThemeContext();
+    const { theme, setTheme, toggleTheme, isDark } = useThemeContext();
     const { clusters, refreshClusters } = useClusterContext();
     const { logout } = useContext(AuthContext);
     const navigate = useNavigate();
@@ -1067,12 +1068,9 @@
                   className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
                   aria-label={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
                 >
-                  {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
                 </button>
-                <button className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} relative`}>
-                  <Bell size={20} />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                </button>
+                <NotificationCenter />
               </div>
             </div>
           </header>

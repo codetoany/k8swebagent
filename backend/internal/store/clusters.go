@@ -334,6 +334,9 @@ func (s *ClusterStore) UpdateConnectionStatus(
 	if status == "" {
 		status = ConnectionStatusUnknown
 	}
+	if status == ConnectionStatusConnected {
+		message = ""
+	}
 
 	_, err := s.pool.Exec(ctx, `
 		UPDATE clusters
@@ -346,6 +349,53 @@ func (s *ClusterStore) UpdateConnectionStatus(
 	`, id, status, message, connectedAt)
 
 	return err
+}
+
+func (s *ClusterStore) Delete(ctx context.Context, id string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var wasDefault bool
+	if err = tx.QueryRow(ctx, `
+		DELETE FROM clusters
+		WHERE id = $1
+		RETURNING is_default
+	`, id).Scan(&wasDefault); err != nil {
+		return err
+	}
+
+	if wasDefault {
+		if _, err = tx.Exec(ctx, `
+			WITH replacement AS (
+				SELECT id
+				FROM clusters
+				WHERE is_enabled = TRUE
+				ORDER BY updated_at DESC, name ASC
+				LIMIT 1
+			)
+			UPDATE clusters
+			SET
+				is_default = TRUE,
+				updated_at = NOW()
+			WHERE id = (SELECT id FROM replacement)
+		`); err != nil {
+			return err
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func scanCluster(row rowScanner) (*Cluster, error) {

@@ -34,6 +34,8 @@
     isDefault: boolean;
   }
 
+  type ClusterEditorMode = 'create' | 'edit';
+
   const SettingsPage = () => {
     const { theme, toggleTheme } = useThemeContext();
     const { clusters, refreshClusters } = useClusterContext();
@@ -55,6 +57,9 @@
     const [selectedClusterConfigId, setSelectedClusterConfigId] = useState('');
     const [clusterSaving, setClusterSaving] = useState(false);
     const [clusterTesting, setClusterTesting] = useState(false);
+    const [isClusterEditorOpen, setIsClusterEditorOpen] = useState(false);
+    const [clusterEditorMode, setClusterEditorMode] = useState<ClusterEditorMode>('create');
+    const [clusterActionLoadingId, setClusterActionLoadingId] = useState('');
     
     // AI模型相关状态
     const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -68,8 +73,8 @@
       modelType: 'openai',
       isDefault: false
     });
-    const applyClusterConfig = (cluster?: Partial<ClusterConfig> | null) => {
-      const nextConfig: ClusterConfig = {
+    const normalizeClusterConfig = (cluster?: Partial<ClusterConfig> | null): ClusterConfig => {
+      return {
         ...createEmptyClusterConfig(),
         ...cluster,
         mode: (cluster?.mode as ClusterMode) || 'token',
@@ -77,9 +82,107 @@
         caData: '',
         kubeconfig: '',
       };
+    };
 
+    const applyClusterConfig = (cluster?: Partial<ClusterConfig> | null, syncSaved: boolean = true) => {
+      const nextConfig = normalizeClusterConfig(cluster);
       setClusterConfig(nextConfig);
-      setSavedClusterConfig(nextConfig);
+      if (syncSaved) {
+        setSavedClusterConfig(nextConfig);
+        setSelectedClusterConfigId(nextConfig.id || '');
+      }
+      return nextConfig;
+    };
+
+    const formatClusterDate = (value?: string) => {
+      if (!value) {
+        return '未记录';
+      }
+
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(parsed);
+    };
+
+    const getClusterModeLabel = (mode: ClusterMode) => {
+      switch (mode) {
+        case 'token':
+          return '令牌';
+        case 'kubeconfig':
+          return 'KubeConfig';
+        case 'in-cluster':
+          return '集群内服务账户';
+        default:
+          return mode;
+      }
+    };
+
+    const getClusterStatusMeta = (status?: string) => {
+      switch (status) {
+        case 'connected':
+          return {
+            label: '连接成功',
+            badgeClass: theme === 'dark'
+              ? 'border border-green-500/30 bg-green-500/10 text-green-300'
+              : 'border border-green-200 bg-green-50 text-green-700',
+            iconClass: 'text-green-400',
+            cardClass: theme === 'dark'
+              ? 'border-green-500/20 shadow-[0_0_0_1px_rgba(34,197,94,0.15)]'
+              : 'border-green-200 shadow-[0_0_0_1px_rgba(34,197,94,0.12)]',
+          };
+        case 'error':
+          return {
+            label: '连接异常',
+            badgeClass: theme === 'dark'
+              ? 'border border-red-500/30 bg-red-500/10 text-red-300'
+              : 'border border-red-200 bg-red-50 text-red-700',
+            iconClass: 'text-red-400',
+            cardClass: theme === 'dark'
+              ? 'border-red-500/20 shadow-[0_0_0_1px_rgba(248,113,113,0.12)]'
+              : 'border-red-200 shadow-[0_0_0_1px_rgba(248,113,113,0.1)]',
+          };
+        case 'not_configured':
+          return {
+            label: '未配置',
+            badgeClass: theme === 'dark'
+              ? 'border border-amber-500/30 bg-amber-500/10 text-amber-200'
+              : 'border border-amber-200 bg-amber-50 text-amber-700',
+            iconClass: 'text-amber-400',
+            cardClass: '',
+          };
+        default:
+          return {
+            label: '待验证',
+            badgeClass: theme === 'dark'
+              ? 'border border-gray-600 bg-gray-800 text-gray-300'
+              : 'border border-gray-200 bg-gray-50 text-gray-600',
+            iconClass: theme === 'dark' ? 'text-gray-400' : 'text-gray-500',
+            cardClass: '',
+          };
+      }
+    };
+
+    const openClusterEditor = (mode: ClusterEditorMode, cluster?: Partial<ClusterConfig> | null) => {
+      setClusterEditorMode(mode);
+      applyClusterConfig(cluster, false);
+      setIsClusterEditorOpen(true);
+    };
+
+    const closeClusterEditor = () => {
+      setIsClusterEditorOpen(false);
+    };
+
+    const selectClusterCard = (clusterId: string) => {
+      const selectedCluster = clusters.find((cluster) => cluster.id === clusterId) || null;
+      applyClusterConfig(selectedCluster);
     };
 
     const loadClusterConfig = async (preferredClusterId?: string) => {
@@ -88,7 +191,6 @@
         ? availableClusters.find((cluster) => cluster.id === preferredClusterId) || null
         : availableClusters.find((cluster) => cluster.isDefault) || availableClusters[0] || null;
 
-      setSelectedClusterConfigId(nextCluster?.id || '');
       applyClusterConfig(nextCluster);
       return nextCluster;
     };
@@ -201,17 +303,20 @@
     };
 
     const handleClusterConfigSelection = (clusterId: string) => {
-      setSelectedClusterConfigId(clusterId);
-      const selectedCluster = clusters.find((cluster) => cluster.id === clusterId) || null;
-      applyClusterConfig(selectedCluster);
+      selectClusterCard(clusterId);
     };
 
     const handleCreateClusterConfig = () => {
-      setSelectedClusterConfigId('');
-      applyClusterConfig({
+      openClusterEditor('create', {
         ...createEmptyClusterConfig(),
         isDefault: clusters.length === 0,
       });
+    };
+
+    const handleEditClusterConfig = (cluster: ClusterConfig) => {
+      setSelectedClusterConfigId(cluster.id);
+      setSavedClusterConfig(normalizeClusterConfig(cluster));
+      openClusterEditor('edit', cluster);
     };
 
     const buildClusterPayload = () => {
@@ -290,6 +395,13 @@
       }
     };
 
+    const handleSaveClusterConfig = async () => {
+      const savedCluster = await persistClusterConfig();
+      if (savedCluster?.id) {
+        closeClusterEditor();
+      }
+    };
+
     const handleTestClusterConnection = async () => {
       setClusterTesting(true);
       try {
@@ -316,6 +428,41 @@
         toast.error(result.message || '连接测试失败');
       } finally {
         setClusterTesting(false);
+      }
+    };
+
+    const handleDeleteClusterConfig = async (cluster: ClusterConfig) => {
+      const confirmed = window.confirm(`确认删除集群“${cluster.name}”吗？删除后可重新创建。`);
+      if (!confirmed) {
+        return;
+      }
+
+      setClusterActionLoadingId(cluster.id);
+      try {
+        await apiClient.delete<void>(
+          replacePathParams(clustersAPI.deleteCluster, { id: cluster.id }),
+        );
+        await loadClusterConfig(selectedClusterConfigId === cluster.id ? undefined : selectedClusterConfigId);
+        toast.success('集群已删除');
+      } finally {
+        setClusterActionLoadingId('');
+      }
+    };
+
+    const handleSetDefaultClusterConfig = async (cluster: ClusterConfig) => {
+      setClusterActionLoadingId(cluster.id);
+      try {
+        await apiClient.put<ClusterConfig>(
+          replacePathParams(clustersAPI.updateCluster, { id: cluster.id }),
+          {
+            isDefault: true,
+            isEnabled: true,
+          },
+        );
+        await loadClusterConfig(cluster.id);
+        toast.success('已设为默认集群');
+      } finally {
+        setClusterActionLoadingId('');
       }
     };
 
@@ -938,191 +1085,207 @@
 
                       {activeTab === 'advanced' && (
                         <>
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              已接入集群
-                            </label>
-                            <div className="flex flex-col gap-3 md:flex-row">
-                              <select
-                                value={selectedClusterConfigId || '__new__'}
-                                onChange={(e) => {
-                                  if (e.target.value === '__new__') {
-                                    handleCreateClusterConfig();
-                                    return;
-                                  }
-                                  handleClusterConfigSelection(e.target.value);
-                                }}
-                                className={`flex-1 pl-3 pr-10 py-2 text-base border rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
-                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
-                                }`}
-                              >
-                                <option value="__new__">新建集群配置</option>
-                                {clusters.map((cluster) => (
-                                  <option key={cluster.id} value={cluster.id}>
-                                    {cluster.name}{cluster.isDefault ? '（默认）' : ''}{cluster.isEnabled ? '' : '（已停用）'}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                onClick={handleCreateClusterConfig}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                                  theme === 'dark'
-                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-100'
-                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
-                                }`}
-                              >
-                                新建集群
-                              </button>
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                集群接入
+                              </h3>
+                              <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                保存后会生成集群卡片。点击卡片查看当前状态，点击编辑再打开配置面板，体验会比一直停留在大表单里更顺手。
+                              </p>
                             </div>
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              集群名称
-                            </label>
-                            <input
-                              type="text"
-                              value={clusterConfig.name}
-                              onChange={(e) => updateClusterConfig({ name: e.target.value })}
-                              placeholder="例如：生产集群"
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                            />
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              API 服务器地址
-                            </label>
-                            <input
-                              type="text"
-                              value={clusterConfig.apiServer}
-                              onChange={(e) => updateClusterConfig({ apiServer: e.target.value })}
-                              placeholder="例如：https://172.29.7.1:6443"
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                              disabled={clusterConfig.mode === 'in-cluster'}
-                            />
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              认证方式
-                            </label>
-                            <select
-                              value={clusterConfig.mode}
-                              onChange={(e) => updateClusterConfig({ mode: e.target.value as ClusterMode })}
-                              className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
+                            <button
+                              type="button"
+                              onClick={handleCreateClusterConfig}
+                              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                                theme === 'dark'
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                              }`}
                             >
-                              <option value="token">令牌</option>
-                              <option value="kubeconfig">KubeConfig</option>
-                              <option value="in-cluster">服务账户（集群内）</option>
-                            </select>
+                              <PlusCircle size={16} className="mr-2" />
+                              新建集群
+                            </button>
                           </div>
 
-                          {clusterConfig.mode === 'token' && (
-                            <>
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  访问令牌
-                                </label>
-                                <textarea
-                                  value={clusterConfig.token}
-                                  onChange={(e) => updateClusterConfig({ token: e.target.value })}
-                                  placeholder={clusterConfig.hasToken ? '已配置 token，留空则保持不变' : '请输入 ServiceAccount token'}
-                                  rows={4}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
+                          {clusters.length === 0 ? (
+                            <div className={`rounded-xl border border-dashed p-8 text-center ${
+                              theme === 'dark' ? 'border-gray-700 bg-gray-800/50' : 'border-gray-300 bg-gray-50'
+                            }`}>
+                              <Server size={28} className={`mx-auto mb-3 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`} />
+                              <p className={`text-base font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                还没有保存任何集群配置
+                              </p>
+                              <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                先创建一条接入配置，保存后这里就会生成可查看、可编辑、可删除的集群卡片。
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                              {clusters.map((cluster) => {
+                                const statusMeta = getClusterStatusMeta(cluster.lastConnectionStatus);
+                                const isSelected = selectedClusterConfigId === cluster.id;
+                                const isBusy = clusterActionLoadingId === cluster.id;
 
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  CA 证书
-                                </label>
-                                <textarea
-                                  value={clusterConfig.caData}
-                                  onChange={(e) => updateClusterConfig({ caData: e.target.value })}
-                                  placeholder="可填写 certificate-authority-data，留空则保持当前值"
-                                  rows={4}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-                            </>
+                                return (
+                                  <motion.div
+                                    key={cluster.id}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    onClick={() => handleClusterConfigSelection(cluster.id)}
+                                    className={`cursor-pointer rounded-xl border p-4 transition-all duration-200 ${
+                                      theme === 'dark' ? 'bg-gray-800/70' : 'bg-white'
+                                    } ${
+                                      isSelected
+                                        ? theme === 'dark'
+                                          ? 'border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]'
+                                          : 'border-blue-300 shadow-[0_0_0_1px_rgba(59,130,246,0.25)]'
+                                        : theme === 'dark'
+                                          ? 'border-gray-700 hover:border-gray-600'
+                                          : 'border-gray-200 hover:border-gray-300'
+                                    } ${statusMeta.cardClass}`}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <h4 className={`truncate text-base font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                            {cluster.name}
+                                          </h4>
+                                          {cluster.isDefault && (
+                                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                              theme === 'dark'
+                                                ? 'bg-blue-500/15 text-blue-300'
+                                                : 'bg-blue-50 text-blue-700'
+                                            }`}>
+                                              默认
+                                            </span>
+                                          )}
+                                          {!cluster.isEnabled && (
+                                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                              theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-300'
+                                                : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                              已停用
+                                            </span>
+                                          )}
+                                        </div>
+                                        <p className={`mt-1 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                          {getClusterModeLabel(cluster.mode)}
+                                        </p>
+                                      </div>
+                                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta.badgeClass}`}>
+                                        {cluster.lastConnectionStatus === 'connected' ? (
+                                          <CheckCircle size={12} className="mr-1.5" />
+                                        ) : cluster.lastConnectionStatus === 'error' ? (
+                                          <AlertCircle size={12} className="mr-1.5" />
+                                        ) : (
+                                          <RefreshCw size={12} className="mr-1.5" />
+                                        )}
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+
+                                    <div className="mt-4 space-y-2 text-sm">
+                                      <div>
+                                        <p className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>API Server</p>
+                                        <p className={`break-all ${theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
+                                          {cluster.apiServer || '集群内模式'}
+                                        </p>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3 text-xs">
+                                        <div>
+                                          <p className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>最近连接</p>
+                                          <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>
+                                            {formatClusterDate(cluster.lastConnectedAt)}
+                                          </p>
+                                        </div>
+                                        <div>
+                                          <p className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>最近更新</p>
+                                          <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>
+                                            {formatClusterDate(cluster.updatedAt)}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      {cluster.lastConnectionStatus === 'error' && cluster.lastConnectionError && (
+                                        <div className={`rounded-lg px-3 py-2 text-xs ${
+                                          theme === 'dark' ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-700'
+                                        }`}>
+                                          {cluster.lastConnectionError}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${
+                                      theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                    }`}>
+                                      {!cluster.isDefault && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void handleSetDefaultClusterConfig(cluster);
+                                          }}
+                                          disabled={isBusy}
+                                          className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                            theme === 'dark'
+                                              ? 'bg-gray-700 text-gray-100 hover:bg-gray-600 disabled:opacity-60'
+                                              : 'bg-gray-100 text-gray-800 hover:bg-gray-200 disabled:opacity-60'
+                                          }`}
+                                        >
+                                          {isBusy ? (
+                                            <RefreshCw size={13} className="mr-1.5 animate-spin" />
+                                          ) : (
+                                            <Check size={13} className="mr-1.5" />
+                                          )}
+                                          设为默认
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          handleEditClusterConfig(cluster);
+                                        }}
+                                        className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                          theme === 'dark'
+                                            ? 'bg-blue-500/10 text-blue-300 hover:bg-blue-500/20'
+                                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                        }`}
+                                      >
+                                        <Edit size={13} className="mr-1.5" />
+                                        编辑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void handleDeleteClusterConfig(cluster);
+                                        }}
+                                        disabled={isBusy}
+                                        className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                          theme === 'dark'
+                                            ? 'bg-red-500/10 text-red-300 hover:bg-red-500/20 disabled:opacity-60'
+                                            : 'bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60'
+                                        }`}
+                                      >
+                                        {isBusy ? (
+                                          <RefreshCw size={13} className="mr-1.5 animate-spin" />
+                                        ) : (
+                                          <Trash size={13} className="mr-1.5" />
+                                        )}
+                                        删除
+                                      </button>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
                           )}
 
-                          {clusterConfig.mode === 'kubeconfig' && (
-                            <>
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  KubeConfig 路径
-                                </label>
-                                <input
-                                  type="text"
-                                  value={clusterConfig.kubeconfigPath}
-                                  onChange={(e) => updateClusterConfig({ kubeconfigPath: e.target.value })}
-                                  placeholder={clusterConfig.hasKubeconfig ? '已配置路径，留空则保持不变' : '例如：/root/.kube/config'}
-                                  className={`block w-full pl-3 pr-10 py-2 text-base border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-
-                              <div>
-                                <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                  KubeConfig 内容
-                                </label>
-                                <textarea
-                                  value={clusterConfig.kubeconfig}
-                                  onChange={(e) => updateClusterConfig({ kubeconfig: e.target.value })}
-                                  placeholder="也可以直接粘贴 kubeconfig 内容"
-                                  rows={6}
-                                  className={`block w-full px-3 py-2 text-sm border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg`}
-                                />
-                              </div>
-                            </>
-                          )}
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              启用集群
-                            </label>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" checked={clusterConfig.isEnabled} onChange={(e) => updateClusterConfig({ isEnabled: e.target.checked })} className="sr-only peer" />
-                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                            </label>
-                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                              关闭后将保留配置，但不会作为默认数据源使用。
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              设为默认集群
-                            </label>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" checked={clusterConfig.isDefault} onChange={(e) => updateClusterConfig({ isDefault: e.target.checked })} className="sr-only peer" />
-                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                            </label>
-                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                              默认集群会作为未指定 clusterId 时的后端数据来源。
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                              跳过 TLS 校验
-                            </label>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input type="checkbox" checked={clusterConfig.insecureSkipTLSVerify} onChange={(e) => updateClusterConfig({ insecureSkipTLSVerify: e.target.checked })} className="sr-only peer" />
-                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
-                            </label>
-                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
-                              仅测试环境建议开启，生产环境请优先提供 CA 证书。
-                            </p>
-                          </div>
-
-                          <div className={`p-3 rounded-lg border text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                            资源页现在支持按集群切换显示；这里保存的是集群接入配置。保存后可点击“测试连接”立即验证。
+                          <div className={`rounded-lg border p-3 text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                            资源页已经支持按集群切换显示；这里保存的是接入配置。建议先保存，再通过卡片编辑补充或更新凭证，然后在弹出的面板中测试连接。
                           </div>
                         </>
                       )}
@@ -1298,24 +1461,45 @@
                               </h3>
                               <div className={`p-3 rounded-lg border ${theme === 'dark' ? 'border-gray-700 bg-gray-700/60' : 'border-gray-200 bg-white'} text-sm space-y-2`}>
                                 <div>
-                                  <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>当前默认集群</p>
+                                  <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>当前选中集群</p>
                                   <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>{savedClusterConfig.name || '未配置'}</p>
                                 </div>
                                 <div>
-                                  <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>连接状态</p>
-                                  <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>{savedClusterConfig.lastConnectionStatus || 'unknown'}</p>
+                                  <p className={`font-medium mb-1 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>连接状态</p>
+                                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${getClusterStatusMeta(savedClusterConfig.id ? savedClusterConfig.lastConnectionStatus : 'not_configured').badgeClass}`}>
+                                    {(savedClusterConfig.id ? savedClusterConfig.lastConnectionStatus : 'not_configured') === 'connected' ? (
+                                      <CheckCircle size={12} className="mr-1.5" />
+                                    ) : (savedClusterConfig.id ? savedClusterConfig.lastConnectionStatus : 'not_configured') === 'error' ? (
+                                      <AlertCircle size={12} className="mr-1.5" />
+                                    ) : (
+                                      <RefreshCw size={12} className="mr-1.5" />
+                                    )}
+                                    {getClusterStatusMeta(savedClusterConfig.id ? savedClusterConfig.lastConnectionStatus : 'not_configured').label}
+                                  </span>
                                 </div>
                                 <div>
                                   <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>API Server</p>
-                                  <p className={`break-all ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{savedClusterConfig.apiServer || '未设置'}</p>
+                                  <p className={`break-all ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{savedClusterConfig.apiServer || '集群内模式'}</p>
+                                </div>
+                                <div>
+                                  <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>认证方式</p>
+                                  <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                                    {savedClusterConfig.id ? getClusterModeLabel(savedClusterConfig.mode) : '未设置'}
+                                  </p>
                                 </div>
                                 {savedClusterConfig.lastConnectedAt && (
                                   <div>
                                     <p className={`font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>最近连接时间</p>
-                                    <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>{savedClusterConfig.lastConnectedAt}</p>
+                                    <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>{formatClusterDate(savedClusterConfig.lastConnectedAt)}</p>
                                   </div>
                                 )}
-                                {savedClusterConfig.lastConnectionError && (
+                                {savedClusterConfig.id && savedClusterConfig.lastConnectionStatus === 'connected' && (
+                                  <div>
+                                    <p className="font-medium text-green-500">最近结果</p>
+                                    <p className="break-all text-green-400">连接成功，可以正常读取集群数据</p>
+                                  </div>
+                                )}
+                                {savedClusterConfig.id && savedClusterConfig.lastConnectionStatus === 'error' && savedClusterConfig.lastConnectionError && (
                                   <div>
                                     <p className="font-medium text-red-500">最近错误</p>
                                     <p className="text-red-400 break-all">{savedClusterConfig.lastConnectionError}</p>
@@ -1399,43 +1583,41 @@
                       <div className="pt-4 border-t border-gray-700">
                         {activeTab !== 'ai-models' ? (
                           <>
-                            {activeTab === 'advanced' && (
-                              <button 
-                                onClick={handleTestClusterConnection}
-                                disabled={clusterSaving || clusterTesting}
-                                className={`w-full mb-3 py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
-                                  theme === 'dark' 
-                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-100 disabled:opacity-60' 
-                                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800 disabled:opacity-60'
-                                }`}
-                              >
-                                <RefreshCw size={16} className={clusterTesting ? 'animate-spin' : ''} />
-                                <span>{clusterTesting ? '测试中...' : '测试连接'}</span>
-                              </button>
+                            {activeTab === 'advanced' ? (
+                              <div className={`rounded-lg border px-3 py-3 text-sm ${
+                                theme === 'dark'
+                                  ? 'border-gray-700 bg-gray-800/60 text-gray-300'
+                                  : 'border-gray-200 bg-white text-gray-600'
+                              }`}>
+                                先在左侧卡片中选择集群查看状态。新建或编辑时会弹出配置面板，保存和测试都在面板中完成。
+                              </div>
+                            ) : (
+                              <>
+                                <button 
+                                  onClick={handleSaveSettings}
+                                  disabled={clusterSaving || clusterTesting}
+                                  className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
+                                    theme === 'dark' 
+                                      ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60' 
+                                      : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60'
+                                  }`}
+                                >
+                                  <Save size={16} />
+                                  <span>保存设置</span>
+                                </button>
+                                <button 
+                                  onClick={handleCancelSettings}
+                                  className={`w-full mt-3 py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
+                                    theme === 'dark' 
+                                      ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
+                                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                                  }`}
+                                >
+                                  <XIcon size={16} />
+                                  <span>取消</span>
+                                </button>
+                              </>
                             )}
-                            <button 
-                              onClick={activeTab === 'advanced' ? () => { void persistClusterConfig(); } : handleSaveSettings}
-                              disabled={clusterSaving || clusterTesting}
-                              className={`w-full py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
-                                theme === 'dark' 
-                                  ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60' 
-                                  : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60'
-                              }`}
-                            >
-                              <Save size={16} />
-                              <span>{activeTab === 'advanced' ? '保存集群配置' : '保存设置'}</span>
-                            </button>
-                            <button 
-                              onClick={handleCancelSettings}
-                              className={`w-full mt-3 py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 font-medium ${
-                                theme === 'dark' 
-                                  ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                              }`}
-                            >
-                              <XIcon size={16} />
-                              <span>取消</span>
-                            </button>
                           </>
                         ) : (
                           <div className="text-center text-sm opacity-70">
@@ -1446,6 +1628,298 @@
                     </div>
                   </div>
                 </motion.div>
+
+                {isClusterEditorOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                  >
+                    <div
+                      className="absolute inset-0 bg-black bg-opacity-55"
+                      onClick={closeClusterEditor}
+                    ></div>
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ duration: 0.22 }}
+                      className={`relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border ${
+                        theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className={`flex items-start justify-between border-b px-6 py-5 ${
+                        theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                      }`}>
+                        <div>
+                          <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                            {clusterEditorMode === 'create' ? '新建集群配置' : '编辑集群配置'}
+                          </h3>
+                          <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                            {clusterEditorMode === 'create'
+                              ? '先填写接入信息并保存，保存后会生成一张集群卡片。'
+                              : '修改接入信息后可直接测试连接，确认无误再关闭面板。'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={closeClusterEditor}
+                          className={`rounded-lg p-2 ${
+                            theme === 'dark' ? 'text-gray-400 hover:bg-gray-700 hover:text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                          }`}
+                        >
+                          <XIcon size={18} />
+                        </button>
+                      </div>
+
+                      <div className="overflow-y-auto px-6 py-5">
+                        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_320px]">
+                          <div className="space-y-5">
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                集群名称
+                              </label>
+                              <input
+                                type="text"
+                                value={clusterConfig.name}
+                                onChange={(e) => updateClusterConfig({ name: e.target.value })}
+                                placeholder="例如：生产集群"
+                                className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                              />
+                            </div>
+
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                认证方式
+                              </label>
+                              <select
+                                value={clusterConfig.mode}
+                                onChange={(e) => updateClusterConfig({ mode: e.target.value as ClusterMode })}
+                                className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                              >
+                                <option value="token">令牌</option>
+                                <option value="kubeconfig">KubeConfig</option>
+                                <option value="in-cluster">服务账户（集群内）</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                API 服务器地址
+                              </label>
+                              <input
+                                type="text"
+                                value={clusterConfig.apiServer}
+                                onChange={(e) => updateClusterConfig({ apiServer: e.target.value })}
+                                placeholder={clusterConfig.mode === 'in-cluster' ? '集群内模式无需填写' : '例如：https://172.29.7.1:6443'}
+                                disabled={clusterConfig.mode === 'in-cluster'}
+                                className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white disabled:bg-gray-800 disabled:text-gray-500' : 'border-gray-300 bg-white text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'
+                                } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                              />
+                            </div>
+
+                            {clusterConfig.mode === 'token' && (
+                              <>
+                                <div>
+                                  <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    访问令牌
+                                  </label>
+                                  <textarea
+                                    value={clusterConfig.token}
+                                    onChange={(e) => updateClusterConfig({ token: e.target.value })}
+                                    placeholder={clusterConfig.hasToken ? '已配置 token，留空则保持不变' : '请输入 ServiceAccount token'}
+                                    rows={5}
+                                    className={`block w-full rounded-lg border px-3 py-2 text-sm ${
+                                      theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                    } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    CA 证书
+                                  </label>
+                                  <textarea
+                                    value={clusterConfig.caData}
+                                    onChange={(e) => updateClusterConfig({ caData: e.target.value })}
+                                    placeholder="可填写 certificate-authority-data，留空则保持当前值"
+                                    rows={4}
+                                    className={`block w-full rounded-lg border px-3 py-2 text-sm ${
+                                      theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                    } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            {clusterConfig.mode === 'kubeconfig' && (
+                              <>
+                                <div>
+                                  <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    KubeConfig 路径
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={clusterConfig.kubeconfigPath}
+                                    onChange={(e) => updateClusterConfig({ kubeconfigPath: e.target.value })}
+                                    placeholder={clusterConfig.hasKubeconfig ? '已配置路径，留空则保持不变' : '例如：/root/.kube/config'}
+                                    className={`block w-full rounded-lg border px-3 py-2 text-base ${
+                                      theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                    } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                    KubeConfig 内容
+                                  </label>
+                                  <textarea
+                                    value={clusterConfig.kubeconfig}
+                                    onChange={(e) => updateClusterConfig({ kubeconfig: e.target.value })}
+                                    placeholder="也可以直接粘贴 kubeconfig 内容"
+                                    rows={7}
+                                    className={`block w-full rounded-lg border px-3 py-2 text-sm ${
+                                      theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                    } focus:border-blue-500 focus:outline-none focus:ring-blue-500`}
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="space-y-4">
+                            <div className={`rounded-xl border p-4 ${
+                              theme === 'dark' ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-gray-50'
+                            }`}>
+                              <h4 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                连接状态
+                              </h4>
+                              <div className="mt-3">
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${getClusterStatusMeta(clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured').badgeClass}`}>
+                                  {(clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured') === 'connected' ? (
+                                    <CheckCircle size={12} className="mr-1.5" />
+                                  ) : (clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured') === 'error' ? (
+                                    <AlertCircle size={12} className="mr-1.5" />
+                                  ) : (
+                                    <RefreshCw size={12} className="mr-1.5" />
+                                  )}
+                                  {getClusterStatusMeta(clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured').label}
+                                </span>
+                              </div>
+                              <p className={`mt-3 text-xs leading-6 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                {(clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured') === 'connected'
+                                  ? '当前凭证已验证通过。'
+                                  : (clusterConfig.id ? clusterConfig.lastConnectionStatus : 'not_configured') === 'error'
+                                    ? '当前凭证存在问题，建议修正后重新测试。'
+                                    : '保存后可点击“测试连接”立即验证。'}
+                              </p>
+                              {clusterConfig.id && clusterConfig.lastConnectionStatus === 'error' && clusterConfig.lastConnectionError && (
+                                <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${
+                                  theme === 'dark' ? 'bg-red-500/10 text-red-300' : 'bg-red-50 text-red-700'
+                                }`}>
+                                  {clusterConfig.lastConnectionError}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className={`rounded-xl border p-4 ${
+                              theme === 'dark' ? 'border-gray-700 bg-gray-900/60' : 'border-gray-200 bg-gray-50'
+                            }`}>
+                              <h4 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                集群选项
+                              </h4>
+                              <div className="mt-4 space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>启用集群</p>
+                                    <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>关闭后保留配置，但不参与资源读取。</p>
+                                  </div>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={clusterConfig.isEnabled} onChange={(e) => updateClusterConfig({ isEnabled: e.target.checked })} className="sr-only peer" />
+                                    <div className={`h-5 w-9 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                                    <div className="absolute left-1 top-1 h-3 w-3 rounded-full bg-white transition-all peer-checked:translate-x-4"></div>
+                                  </label>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>设为默认集群</p>
+                                    <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>未指定 clusterId 时默认使用它。</p>
+                                  </div>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={clusterConfig.isDefault} onChange={(e) => updateClusterConfig({ isDefault: e.target.checked })} className="sr-only peer" />
+                                    <div className={`h-5 w-9 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                                    <div className="absolute left-1 top-1 h-3 w-3 rounded-full bg-white transition-all peer-checked:translate-x-4"></div>
+                                  </label>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>跳过 TLS 校验</p>
+                                    <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>仅建议测试环境临时开启。</p>
+                                  </div>
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={clusterConfig.insecureSkipTLSVerify} onChange={(e) => updateClusterConfig({ insecureSkipTLSVerify: e.target.checked })} className="sr-only peer" />
+                                    <div className={`h-5 w-9 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                                    <div className="absolute left-1 top-1 h-3 w-3 rounded-full bg-white transition-all peer-checked:translate-x-4"></div>
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className={`flex flex-col gap-3 border-t px-6 py-4 sm:flex-row sm:justify-end ${
+                        theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50/70'
+                      }`}>
+                        <button
+                          type="button"
+                          onClick={closeClusterEditor}
+                          className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                            theme === 'dark'
+                              ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          <XIcon size={15} className="mr-2" />
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleTestClusterConnection}
+                          disabled={clusterSaving || clusterTesting}
+                          className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                            theme === 'dark'
+                              ? 'bg-gray-700 text-gray-100 hover:bg-gray-600 disabled:opacity-60'
+                              : 'bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-60'
+                          }`}
+                        >
+                          <RefreshCw size={15} className={`mr-2 ${clusterTesting ? 'animate-spin' : ''}`} />
+                          {clusterTesting ? '测试中...' : '测试连接'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { void handleSaveClusterConfig(); }}
+                          disabled={clusterSaving || clusterTesting}
+                          className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium ${
+                            theme === 'dark'
+                              ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60'
+                              : 'bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60'
+                          }`}
+                        >
+                          <Save size={15} className="mr-2" />
+                          {clusterSaving ? '保存中...' : '保存配置'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
                 
                 {/* 添加新模型的弹窗 */}
                 {isAddingModel && (

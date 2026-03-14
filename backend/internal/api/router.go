@@ -77,6 +77,7 @@ func NewRouter(
 		r.Get("/default", h.wrap(h.defaultCluster))
 		r.Post("/", h.wrap(h.createCluster))
 		r.Put("/{id}", h.wrap(h.updateCluster))
+		r.Delete("/{id}", h.wrap(h.deleteCluster))
 		r.Post("/{id}/test", h.wrap(h.testCluster))
 	})
 
@@ -292,6 +293,24 @@ func (h *handler) updateCluster(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	writeJSON(w, http.StatusOK, toClusterResponse(*saved))
+	return nil
+}
+
+func (h *handler) deleteCluster(w http.ResponseWriter, r *http.Request) error {
+	id := chi.URLParam(r, "id")
+	existing, err := h.clusterStore.GetByID(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return newHTTPError(http.StatusNotFound, "Cluster not found")
+	}
+
+	if err := h.clusterStore.Delete(r.Context(), id); err != nil {
+		return err
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
@@ -752,6 +771,7 @@ func mergeClusterPayload(existing *store.Cluster, payload clusterPayload) (store
 		IsEnabled:            true,
 		LastConnectionStatus: store.ConnectionStatusUnknown,
 	}
+	connectionChanged := existing == nil
 	if existing != nil {
 		cluster = *existing
 	}
@@ -760,24 +780,51 @@ func mergeClusterPayload(existing *store.Cluster, payload clusterPayload) (store
 		cluster.Name = strings.TrimSpace(*payload.Name)
 	}
 	if payload.Mode != nil {
-		cluster.Mode = strings.TrimSpace(*payload.Mode)
+		value := strings.TrimSpace(*payload.Mode)
+		if value != cluster.Mode {
+			connectionChanged = true
+		}
+		cluster.Mode = value
 	}
 	if payload.APIServer != nil {
-		cluster.APIServer = strings.TrimSpace(*payload.APIServer)
+		value := strings.TrimSpace(*payload.APIServer)
+		if value != cluster.APIServer {
+			connectionChanged = true
+		}
+		cluster.APIServer = value
 	}
 	if payload.KubeconfigPath != nil {
-		cluster.KubeconfigPath = strings.TrimSpace(*payload.KubeconfigPath)
+		value := strings.TrimSpace(*payload.KubeconfigPath)
+		if value != cluster.KubeconfigPath {
+			connectionChanged = true
+		}
+		cluster.KubeconfigPath = value
 	}
 	if payload.Kubeconfig != nil {
-		cluster.Kubeconfig = strings.TrimSpace(*payload.Kubeconfig)
+		value := strings.TrimSpace(*payload.Kubeconfig)
+		if value != cluster.Kubeconfig {
+			connectionChanged = true
+		}
+		cluster.Kubeconfig = value
 	}
 	if payload.Token != nil {
-		cluster.Token = strings.TrimSpace(*payload.Token)
+		value := strings.TrimSpace(*payload.Token)
+		if value != cluster.Token {
+			connectionChanged = true
+		}
+		cluster.Token = value
 	}
 	if payload.CAData != nil {
-		cluster.CAData = strings.TrimSpace(*payload.CAData)
+		value := strings.TrimSpace(*payload.CAData)
+		if value != cluster.CAData {
+			connectionChanged = true
+		}
+		cluster.CAData = value
 	}
 	if payload.InsecureSkipTLSVerify != nil {
+		if *payload.InsecureSkipTLSVerify != cluster.InsecureSkipTLSVerify {
+			connectionChanged = true
+		}
 		cluster.InsecureSkipTLSVerify = *payload.InsecureSkipTLSVerify
 	}
 	if payload.IsDefault != nil {
@@ -787,9 +834,11 @@ func mergeClusterPayload(existing *store.Cluster, payload clusterPayload) (store
 		cluster.IsEnabled = *payload.IsEnabled
 	}
 
-	cluster.LastConnectionStatus = store.ConnectionStatusUnknown
-	cluster.LastConnectionError = ""
-	cluster.LastConnectedAt = nil
+	if connectionChanged {
+		cluster.LastConnectionStatus = store.ConnectionStatusUnknown
+		cluster.LastConnectionError = ""
+		cluster.LastConnectedAt = nil
+	}
 
 	if cluster.Name == "" {
 		return store.Cluster{}, fmt.Errorf("name is required")

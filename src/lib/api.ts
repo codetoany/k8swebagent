@@ -45,6 +45,7 @@ export const clustersAPI = {
   getDefaultCluster: '/clusters/default',
   createCluster: '/clusters',
   updateCluster: '/clusters/:id',
+  deleteCluster: '/clusters/:id',
   testCluster: '/clusters/:id/test',
 };
 

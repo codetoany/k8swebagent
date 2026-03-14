@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
   import { 
     Server, BarChart3, Database, Network, Settings, LogOut, 
@@ -13,8 +13,9 @@ import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
-import { namespacesAPI, podsAPI } from '@/lib/api';
+import { namespacesAPI, podsAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
 
@@ -41,6 +42,12 @@ const Pods = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('全部');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [podLogs, setPodLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsRefreshNonce, setLogsRefreshNonce] = useState(0);
+  const [actionLoadingKey, setActionLoadingKey] = useState('');
+
+  const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
 
   useEffect(() => {
     let active = true;
@@ -91,6 +98,39 @@ const Pods = () => {
     setCurrentPage(1);
   }, [searchTerm, selectedNamespace, sortConfig, pageSize, selectedCluster?.id]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadPodLogs = async () => {
+      if (!selectedPod) {
+        setPodLogs([]);
+        return;
+      }
+
+      setLogsLoading(true);
+      try {
+        const endpoint = replacePathParams(podsAPI.getPodLogs, {
+          namespace: selectedPod.namespace,
+          name: selectedPod.name,
+        });
+        const logs = await apiClient.get<any[]>(endpoint, clusterParams);
+        if (active) {
+          setPodLogs(Array.isArray(logs) ? logs : []);
+        }
+      } finally {
+        if (active) {
+          setLogsLoading(false);
+        }
+      }
+    };
+
+    void loadPodLogs();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedPod?.namespace, selectedPod?.name, selectedCluster?.id, logsRefreshNonce]);
+
   // 处理登出
   const handleLogout = () => {
     logout();
@@ -102,6 +142,38 @@ const Pods = () => {
     navigate(path);
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
+    }
+  };
+
+  const handleDeletePod = async (pod: any) => {
+    const confirmed = window.confirm(`确认删除 Pod "${pod.name}" 吗？`);
+    if (!confirmed) {
+      return;
+    }
+
+    const actionKey = `${pod.namespace}:${pod.name}:delete`;
+    setActionLoadingKey(actionKey);
+
+    try {
+      const endpoint = replacePathParams(podsAPI.deletePod, {
+        namespace: pod.namespace,
+        name: pod.name,
+      });
+      await apiClient.delete(endpoint, { params: clusterParams });
+      setPods((current) =>
+        current.filter((item) => !(item.namespace === pod.namespace && item.name === pod.name)),
+      );
+      setSelectedPod((current: any) => {
+        if (current && current.namespace === pod.namespace && current.name === pod.name) {
+          return null;
+        }
+
+        return current;
+      });
+      setPodLogs([]);
+      toast.success(`Pod ${pod.name} 已删除`);
+    } finally {
+      setActionLoadingKey('');
     }
   };
 
@@ -195,7 +267,7 @@ const Pods = () => {
   };
 
   // 渲染导航项
-  const renderNavItem = (icon: React.ReactNode, label: string, path: string, active: boolean = false) => (
+  const renderNavItem = (icon: ReactNode, label: string, path: string, active: boolean = false) => (
     <motion.div 
       className={`flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer transition-all duration-300
         ${active 
@@ -337,15 +409,56 @@ const Pods = () => {
                 ))}
               </div>
             </div>
+
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>容器日志</h4>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 ${
+                    theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
+                  }`}
+                  onClick={() => setLogsRefreshNonce((value) => value + 1)}
+                  disabled={logsLoading}
+                >
+                  <RefreshCw size={14} className={logsLoading ? 'animate-spin' : ''} />
+                  <span>{logsLoading ? '刷新中...' : '刷新日志'}</span>
+                </button>
+              </div>
+              <div className={`rounded-lg border ${theme === 'dark' ? 'border-gray-700 bg-gray-950' : 'border-gray-200 bg-gray-900'} p-3 max-h-72 overflow-y-auto`}>
+                {logsLoading && podLogs.length === 0 ? (
+                  <p className="text-xs text-gray-400">正在加载日志...</p>
+                ) : podLogs.length === 0 ? (
+                  <p className="text-xs text-gray-400">当前容器暂无可显示日志。</p>
+                ) : (
+                  <div className="space-y-2 font-mono text-xs">
+                    {podLogs.map((entry, index) => (
+                      <div key={`${entry.timestamp}-${index}`} className="text-gray-200">
+                        <span className="text-gray-500">[{entry.timestamp}]</span>{' '}
+                        <span className="text-blue-300">{entry.stream}</span>{' '}
+                        <span>{entry.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             
             <div className="flex justify-end space-x-3">
-              <button className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} text-sm`}>
-                <Trash2 size={16} className="inline mr-1" />
-                删除
+              <button
+                className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} text-sm`}
+                onClick={() => setLogsRefreshNonce((value) => value + 1)}
+                disabled={logsLoading}
+              >
+                <RefreshCw size={16} className={`inline mr-1 ${logsLoading ? 'animate-spin' : ''}`} />
+                刷新日志
               </button>
-              <button className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white text-sm`}>
-                <Edit2 size={16} className="inline mr-1" />
-                编辑
+              <button
+                className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'} text-white text-sm`}
+                onClick={() => void handleDeletePod(selectedPod)}
+                disabled={actionLoadingKey === `${selectedPod.namespace}:${selectedPod.name}:delete`}
+              >
+                <Trash2 size={16} className="inline mr-1" />
+                {actionLoadingKey === `${selectedPod.namespace}:${selectedPod.name}:delete` ? '删除中...' : '删除 Pod'}
               </button>
             </div>
           </div>

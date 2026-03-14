@@ -13,10 +13,14 @@ import (
 	"k8s-agent-backend/internal/store"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var ErrPodNotFound = errors.New("pod not found")
+var (
+	ErrPodNotFound          = errors.New("pod not found")
+	ErrPodLiveClusterNeeded = errors.New("pod action requires a live cluster")
+)
 
 type PodsService struct {
 	snapshotStore *store.SnapshotStore
@@ -147,6 +151,25 @@ func (s *PodsService) LogsPayload(ctx context.Context, clusterID string, namespa
 	}
 
 	return json.Marshal(entries)
+}
+
+func (s *PodsService) Delete(ctx context.Context, clusterID string, namespace string, name string) error {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return ErrPodLiveClusterNeeded
+	case err != nil:
+		return err
+	}
+
+	if err := clientset.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return ErrPodNotFound
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (s *PodsService) list(ctx context.Context, clusterID string) ([]PodListItem, error) {

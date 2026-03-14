@@ -103,6 +103,7 @@ func NewRouter(
 		r.Get("/{namespace}/{name}/logs", h.wrap(h.podLogs))
 		r.Get("/{namespace}/{name}/metrics", h.wrap(h.podMetrics))
 		r.Get("/{namespace}/{name}", h.wrap(h.podDetail))
+		r.Delete("/{namespace}/{name}", h.wrap(h.deletePod))
 	})
 
 	router.Route("/api", func(r chi.Router) {
@@ -182,7 +183,7 @@ func translateUpstreamError(err error) (int, string, bool) {
 		return http.StatusBadGateway, "集群认证失败，请更新集群 Token 或 kubeconfig", true
 	}
 	if k8serrors.IsForbidden(err) {
-		return http.StatusBadGateway, "集群账号权限不足，请检查 RBAC 授权", true
+		return http.StatusForbidden, "集群账号权限不足，请检查 RBAC 授权", true
 	}
 
 	lower := strings.ToLower(err.Error())
@@ -191,7 +192,7 @@ func translateUpstreamError(err error) (int, string, bool) {
 		strings.Contains(lower, "unauthorized"):
 		return http.StatusBadGateway, "集群认证失败，请更新集群 Token 或 kubeconfig", true
 	case strings.Contains(lower, "forbidden"):
-		return http.StatusBadGateway, "集群账号权限不足，请检查 RBAC 授权", true
+		return http.StatusForbidden, "集群账号权限不足，请检查 RBAC 授权", true
 	default:
 		return 0, "", false
 	}
@@ -610,6 +611,29 @@ func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
 
 		return payload, nil
 	})
+}
+
+func (h *handler) deletePod(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+
+	if err := h.podsService.Delete(r.Context(), clusterID, namespace, name); err != nil {
+		switch {
+		case errors.Is(err, service.ErrPodNotFound):
+			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
+		case errors.Is(err, service.ErrPodLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Pod deleted",
+	})
+	return nil
 }
 
 func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error {

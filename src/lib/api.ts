@@ -22,6 +22,7 @@ export const podsAPI = {
   getPodDetail: "/pods/:namespace/:name",
   getPodLogs: "/pods/:namespace/:name/logs",
   getPodMetrics: "/pods/:namespace/:name/metrics",
+  deletePod: "/pods/:namespace/:name",
 };
 
 export const workloadsAPI = {

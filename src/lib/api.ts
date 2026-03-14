@@ -40,6 +40,14 @@ export const namespacesAPI = {
   getNamespaceDetail: '/namespaces/:name',
 };
 
+export const clustersAPI = {
+  listClusters: '/clusters',
+  getDefaultCluster: '/clusters/default',
+  createCluster: '/clusters',
+  updateCluster: '/clusters/:id',
+  testCluster: '/clusters/:id/test',
+};
+
 export const aiDiagnosisAPI = {
   getNodeStatus: '/ai-diagnosis/node-status',
   getDiagnosisHistory: '/ai-diagnosis/history',

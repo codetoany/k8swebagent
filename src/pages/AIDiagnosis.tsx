@@ -461,8 +461,8 @@ export default function AIDiagnosis() {
 
       <div className="lg:ml-64 flex min-h-screen flex-col">
         <header className={`sticky top-0 z-40 border-b ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-          <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
-            <div className="flex min-w-0 items-start gap-4">
+          <div className="grid gap-4 px-4 py-4 md:px-6 md:py-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+            <div className="flex min-w-0 items-start gap-4 xl:col-start-1 xl:row-span-2">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className={`mt-1 rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
@@ -481,7 +481,7 @@ export default function AIDiagnosis() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 xl:col-start-2 xl:justify-end">
               <button
                 onClick={toggleTheme}
                 className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
@@ -491,7 +491,7 @@ export default function AIDiagnosis() {
               </button>
               <NotificationCenter />
             </div>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className={`flex flex-col gap-3 rounded-2xl border p-4 xl:col-start-2 xl:row-start-2 xl:min-w-[520px] ${isDark ? 'border-gray-700 bg-gray-800/70' : 'border-gray-200 bg-gray-50'}`}>
               <div className="min-w-0">
                 <div className="text-sm opacity-70">当前分析集群</div>
                 <div className="mt-1 truncate text-xl font-bold md:text-2xl">{welcomeClusterName}</div>

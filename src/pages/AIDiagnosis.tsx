@@ -539,44 +539,6 @@ export default function AIDiagnosis() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm opacity-70">集群节点</span>
-                  <Server size={18} className="text-blue-500" />
-                </div>
-                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.totalNodes ?? 0}</div>
-                <div className="mt-2 text-sm opacity-70">
-                  在线 {clusterStatus?.overview.onlineNodes ?? 0} / 异常 {clusterStatus?.overview.offlineNodes ?? 0}
-                </div>
-              </div>
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm opacity-70">运行中 Pods</span>
-                  <Database size={18} className="text-emerald-500" />
-                </div>
-                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.runningPods ?? 0}</div>
-                <div className="mt-2 text-sm opacity-70">
-                  失败 {clusterStatus?.overview.failedPods ?? 0} / 暂停 {clusterStatus?.overview.pausedPods ?? 0}
-                </div>
-              </div>
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm opacity-70">CPU 使用率</span>
-                  <BarChart3 size={18} className="text-amber-500" />
-                </div>
-                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.cpuUsage ?? 0}%</div>
-                <div className="mt-2 text-sm opacity-70">内存 {clusterStatus?.overview.memoryUsage ?? 0}%</div>
-              </div>
-              <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm opacity-70">工作负载</span>
-                  <Package size={18} className="text-purple-500" />
-                </div>
-                <div className="mt-4 text-3xl font-bold">{clusterStatus?.overview.totalWorkloads ?? 0}</div>
-                <div className="mt-2 text-sm opacity-70">待关注 {clusterStatus?.workloadAlerts.length ?? 0} 项</div>
-              </div>
-            </div>
           </section>
 
           <section

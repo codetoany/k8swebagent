@@ -44,9 +44,9 @@ type DashboardOverview struct {
 
 type ResourceUsagePoint struct {
 	Time        string `json:"time"`
-	CPUUsage    int    `json:"cpuUsage"`
-	MemoryUsage int    `json:"memoryUsage"`
-	DiskUsage   int    `json:"diskUsage"`
+	CPUUsage    *int   `json:"cpuUsage"`
+	MemoryUsage *int   `json:"memoryUsage"`
+	DiskUsage   *int   `json:"diskUsage"`
 }
 
 type ResourceUsageRange string
@@ -299,13 +299,7 @@ func buildResourceUsagePoints(overview DashboardOverview, resourceRange Resource
 			0.68,
 		)
 	default:
-		return buildResourceUsageWindowPoints(
-			overview,
-			buildCurrentDayLabels(now),
-			[]float64{0.48, 0.43, 0.68, 0.84, 0.96, 0.82, 1.0},
-			[]float64{0.34, 0.31, 0.52, 0.76, 0.88, 0.74, 1.0},
-			[]float64{0.56, 0.53, 0.66, 0.78, 0.89, 0.81, 1.0},
-		)
+		return buildCurrentDayPoints(overview, now)
 	}
 }
 
@@ -327,10 +321,33 @@ func buildAdaptiveResourceUsagePoints(
 		progress := float64(index) / denominator
 		points = append(points, ResourceUsagePoint{
 			Time:        label,
-			CPUUsage:    scaledPercent(overview.CPUUsage, trendFactor(progress, cpuStart, 0.08, 0.6)),
-			MemoryUsage: scaledPercent(overview.MemoryUsage, trendFactor(progress, memoryStart, 0.06, 1.3)),
-			DiskUsage:   scaledPercent(overview.DiskUsage, trendFactor(progress, diskStart, 0.05, 0.9)),
+			CPUUsage:    intPointer(scaledPercent(overview.CPUUsage, trendFactor(progress, cpuStart, 0.08, 0.6))),
+			MemoryUsage: intPointer(scaledPercent(overview.MemoryUsage, trendFactor(progress, memoryStart, 0.06, 1.3))),
+			DiskUsage:   intPointer(scaledPercent(overview.DiskUsage, trendFactor(progress, diskStart, 0.05, 0.9))),
 		})
+	}
+
+	return points
+}
+
+func buildCurrentDayPoints(overview DashboardOverview, now time.Time) []ResourceUsagePoint {
+	points := make([]ResourceUsagePoint, 0, 24)
+	currentHour := now.Hour()
+	denominator := float64(maxInt(currentHour, 1))
+
+	for hour := 0; hour < 24; hour++ {
+		point := ResourceUsagePoint{
+			Time: fmt.Sprintf("%02d:00", hour),
+		}
+
+		if hour <= currentHour {
+			progress := float64(hour) / denominator
+			point.CPUUsage = intPointer(scaledPercent(overview.CPUUsage, trendFactor(progress, 0.46, 0.09, 0.4)))
+			point.MemoryUsage = intPointer(scaledPercent(overview.MemoryUsage, trendFactor(progress, 0.32, 0.06, 1.2)))
+			point.DiskUsage = intPointer(scaledPercent(overview.DiskUsage, trendFactor(progress, 0.54, 0.05, 0.8)))
+		}
+
+		points = append(points, point)
 	}
 
 	return points
@@ -348,9 +365,9 @@ func buildResourceUsageWindowPoints(
 	for index, label := range labels {
 		points = append(points, ResourceUsagePoint{
 			Time:        label,
-			CPUUsage:    scaledPercent(overview.CPUUsage, pickFactor(cpuFactors, index)),
-			MemoryUsage: scaledPercent(overview.MemoryUsage, pickFactor(memoryFactors, index)),
-			DiskUsage:   scaledPercent(overview.DiskUsage, pickFactor(diskFactors, index)),
+			CPUUsage:    intPointer(scaledPercent(overview.CPUUsage, pickFactor(cpuFactors, index))),
+			MemoryUsage: intPointer(scaledPercent(overview.MemoryUsage, pickFactor(memoryFactors, index))),
+			DiskUsage:   intPointer(scaledPercent(overview.DiskUsage, pickFactor(diskFactors, index))),
 		})
 	}
 
@@ -392,25 +409,6 @@ func buildCurrentMonthLabels(now time.Time) []string {
 	labels := make([]string, 0, now.Day())
 	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
 		labels = append(labels, date.Format("01/02"))
-	}
-
-	return labels
-}
-
-func buildCurrentDayLabels(now time.Time) []string {
-	labels := []string{"00:00"}
-	currentSlotStart := (now.Hour() / 4) * 4
-
-	for hour := 4; hour < currentSlotStart; hour += 4 {
-		labels = append(labels, fmt.Sprintf("%02d:00", hour))
-	}
-
-	currentLabel := now.Format("15:04")
-	if now.Minute() == 0 {
-		currentLabel = fmt.Sprintf("%02d:00", now.Hour())
-	}
-	if labels[len(labels)-1] != currentLabel {
-		labels = append(labels, currentLabel)
 	}
 
 	return labels
@@ -583,6 +581,10 @@ func deriveDiskUsage(cpuUsage int, memoryUsage int, totalWorkloads int) int {
 
 func scaledPercent(value int, factor float64) int {
 	return clampPercent(int(float64(value) * factor))
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func maxInt(a int, b int) int {

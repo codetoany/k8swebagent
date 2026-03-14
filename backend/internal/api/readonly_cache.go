@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"k8s-agent-backend/internal/store"
@@ -95,4 +96,25 @@ func (h *handler) readonlyCacheKey(ctx context.Context, clusterID string, cacheF
 	}
 
 	return fmt.Sprintf("readonly:%s:%s", cluster.ID, cacheFragment), true, nil
+}
+
+func (h *handler) invalidateReadonlyCache(ctx context.Context, clusterID string) {
+	if h.redisCache == nil {
+		return
+	}
+
+	cluster, err := h.resolveReadonlyCacheCluster(ctx, clusterID)
+	if err != nil || cluster == nil {
+		return
+	}
+
+	_ = h.redisCache.DeleteByPrefix(ctx, fmt.Sprintf("readonly:%s:", cluster.ID))
+}
+
+func (h *handler) resolveReadonlyCacheCluster(ctx context.Context, clusterID string) (*store.Cluster, error) {
+	if strings.TrimSpace(clusterID) != "" {
+		return h.clusterStore.GetByID(ctx, clusterID)
+	}
+
+	return h.clusterStore.GetDefault(ctx)
 }

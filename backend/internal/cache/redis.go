@@ -89,6 +89,33 @@ func (c *RedisCache) SetWithTTL(ctx context.Context, key string, value json.RawM
 	return nil
 }
 
+func (c *RedisCache) DeleteByPrefix(ctx context.Context, prefix string) error {
+	if c.client == nil || prefix == "" {
+		return nil
+	}
+
+	var cursor uint64
+	pattern := prefix + "*"
+
+	for {
+		keys, nextCursor, err := c.client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return nil
+		}
+		if len(keys) > 0 {
+			if err := c.client.Del(ctx, keys...).Err(); err != nil {
+				return nil
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}
+
 func (c *RedisCache) Close() error {
 	if c.client == nil {
 		return nil

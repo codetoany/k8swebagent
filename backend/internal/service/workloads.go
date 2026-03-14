@@ -14,10 +14,15 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var ErrWorkloadNotFound = errors.New("workload not found")
+var (
+	ErrWorkloadNotFound          = errors.New("workload not found")
+	ErrWorkloadActionUnsupported = errors.New("workload action not supported")
+	ErrWorkloadLiveClusterNeeded = errors.New("workload action requires a live cluster")
+)
 
 type WorkloadsService struct {
 	snapshotStore *store.SnapshotStore
@@ -70,6 +75,150 @@ func (s *WorkloadsService) DetailPayload(ctx context.Context, clusterID string, 
 	}
 
 	return item, nil
+}
+
+func (s *WorkloadsService) Scale(
+	ctx context.Context,
+	clusterID string,
+	scope string,
+	namespace string,
+	name string,
+	replicas int32,
+) (WorkloadItem, error) {
+	if replicas < 0 {
+		return WorkloadItem{}, fmt.Errorf("replicas must be greater than or equal to 0")
+	}
+
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return WorkloadItem{}, ErrWorkloadLiveClusterNeeded
+	case err != nil:
+		return WorkloadItem{}, err
+	}
+
+	switch scope {
+	case "deployments":
+		item, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		item.Spec.Replicas = int32Pointer(replicas)
+		updated, err := clientset.AppsV1().Deployments(namespace).Update(ctx, item, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		return mapDeployment(*updated), nil
+	case "statefulsets":
+		item, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		item.Spec.Replicas = int32Pointer(replicas)
+		updated, err := clientset.AppsV1().StatefulSets(namespace).Update(ctx, item, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		return mapStatefulSet(*updated), nil
+	default:
+		return WorkloadItem{}, ErrWorkloadActionUnsupported
+	}
+}
+
+func (s *WorkloadsService) Restart(
+	ctx context.Context,
+	clusterID string,
+	scope string,
+	namespace string,
+	name string,
+) (WorkloadItem, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
+	switch {
+	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
+		return WorkloadItem{}, ErrWorkloadLiveClusterNeeded
+	case err != nil:
+		return WorkloadItem{}, err
+	}
+
+	restartedAt := time.Now().UTC().Format(time.RFC3339)
+
+	switch scope {
+	case "deployments":
+		item, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		item.Spec.Template.Annotations = withRestartAnnotation(item.Spec.Template.Annotations, restartedAt)
+		updated, err := clientset.AppsV1().Deployments(namespace).Update(ctx, item, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		return mapDeployment(*updated), nil
+	case "statefulsets":
+		item, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		item.Spec.Template.Annotations = withRestartAnnotation(item.Spec.Template.Annotations, restartedAt)
+		updated, err := clientset.AppsV1().StatefulSets(namespace).Update(ctx, item, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		return mapStatefulSet(*updated), nil
+	case "daemonsets":
+		item, err := clientset.AppsV1().DaemonSets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		item.Spec.Template.Annotations = withRestartAnnotation(item.Spec.Template.Annotations, restartedAt)
+		updated, err := clientset.AppsV1().DaemonSets(namespace).Update(ctx, item, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			return WorkloadItem{}, ErrWorkloadNotFound
+		}
+		if err != nil {
+			return WorkloadItem{}, err
+		}
+
+		return mapDaemonSet(*updated), nil
+	default:
+		return WorkloadItem{}, ErrWorkloadActionUnsupported
+	}
 }
 
 func (s *WorkloadsService) list(ctx context.Context, clusterID string, scope string) ([]WorkloadItem, error) {
@@ -251,6 +400,12 @@ func containerImages(containers []corev1.Container) []string {
 	return images
 }
 
+func withRestartAnnotation(annotations map[string]string, restartedAt string) map[string]string {
+	next := copyStringMap(annotations)
+	next["kubectl.kubernetes.io/restartedAt"] = restartedAt
+	return next
+}
+
 func findNamespacedPayload(payload json.RawMessage, namespace string, name string) (json.RawMessage, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(payload, &items); err != nil {
@@ -275,4 +430,8 @@ func findNamespacedPayload(payload json.RawMessage, namespace string, name strin
 
 func WorkloadNotFoundMessage(scope string, namespace string, name string) string {
 	return fmt.Sprintf("%s not found: %s/%s", scope, namespace, name)
+}
+
+func int32Pointer(value int32) *int32 {
+	return &value
 }

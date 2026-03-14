@@ -108,10 +108,15 @@ func NewRouter(
 	router.Route("/api", func(r chi.Router) {
 		r.Get("/deployments", h.wrap(h.listWorkload("deployments")))
 		r.Get("/deployments/{namespace}/{name}", h.wrap(h.workloadDetail("deployments")))
+		r.Post("/deployments/{namespace}/{name}/scale", h.wrap(h.scaleWorkload("deployments")))
+		r.Post("/deployments/{namespace}/{name}/restart", h.wrap(h.restartWorkload("deployments")))
 		r.Get("/statefulsets", h.wrap(h.listWorkload("statefulsets")))
 		r.Get("/statefulsets/{namespace}/{name}", h.wrap(h.workloadDetail("statefulsets")))
+		r.Post("/statefulsets/{namespace}/{name}/scale", h.wrap(h.scaleWorkload("statefulsets")))
+		r.Post("/statefulsets/{namespace}/{name}/restart", h.wrap(h.restartWorkload("statefulsets")))
 		r.Get("/daemonsets", h.wrap(h.listWorkload("daemonsets")))
 		r.Get("/daemonsets/{namespace}/{name}", h.wrap(h.workloadDetail("daemonsets")))
+		r.Post("/daemonsets/{namespace}/{name}/restart", h.wrap(h.restartWorkload("daemonsets")))
 		r.Get("/cronjobs", h.wrap(h.listWorkload("cronjobs")))
 		r.Get("/cronjobs/{namespace}/{name}", h.wrap(h.workloadDetail("cronjobs")))
 	})
@@ -438,6 +443,64 @@ func (h *handler) workloadDetail(scope string) routeHandler {
 	}
 }
 
+func (h *handler) scaleWorkload(scope string) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		var payload workloadScalePayload
+		if err := decodeJSON(r, &payload); err != nil {
+			return newHTTPError(http.StatusBadRequest, "无效的请求参数")
+		}
+		if payload.Replicas == nil || *payload.Replicas < 0 {
+			return newHTTPError(http.StatusBadRequest, "副本数必须大于或等于 0")
+		}
+
+		clusterID := requestedClusterID(r)
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		item, err := h.workloadsService.Scale(r.Context(), clusterID, scope, namespace, name, *payload.Replicas)
+		if err != nil {
+			switch {
+			case errors.Is(err, service.ErrWorkloadNotFound):
+				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+			case errors.Is(err, service.ErrWorkloadActionUnsupported):
+				return newHTTPError(http.StatusBadRequest, "当前工作负载类型暂不支持扩缩容")
+			case errors.Is(err, service.ErrWorkloadLiveClusterNeeded):
+				return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+			default:
+				return err
+			}
+		}
+
+		h.invalidateReadonlyCache(r.Context(), clusterID)
+		writeJSON(w, http.StatusOK, item)
+		return nil
+	}
+}
+
+func (h *handler) restartWorkload(scope string) routeHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		clusterID := requestedClusterID(r)
+		namespace := chi.URLParam(r, "namespace")
+		name := chi.URLParam(r, "name")
+		item, err := h.workloadsService.Restart(r.Context(), clusterID, scope, namespace, name)
+		if err != nil {
+			switch {
+			case errors.Is(err, service.ErrWorkloadNotFound):
+				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
+			case errors.Is(err, service.ErrWorkloadActionUnsupported):
+				return newHTTPError(http.StatusBadRequest, "当前工作负载类型暂不支持重启")
+			case errors.Is(err, service.ErrWorkloadLiveClusterNeeded):
+				return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+			default:
+				return err
+			}
+		}
+
+		h.invalidateReadonlyCache(r.Context(), clusterID)
+		writeJSON(w, http.StatusOK, item)
+		return nil
+	}
+}
+
 func (h *handler) list(scope string, key string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		payload, err := h.store.Get(r.Context(), scope, key)
@@ -743,6 +806,10 @@ type clusterResponse struct {
 	LastConnectedAt       *time.Time `json:"lastConnectedAt,omitempty"`
 	CreatedAt             time.Time  `json:"createdAt"`
 	UpdatedAt             time.Time  `json:"updatedAt"`
+}
+
+type workloadScalePayload struct {
+	Replicas *int32 `json:"replicas"`
 }
 
 func newHTTPError(status int, message string) error {

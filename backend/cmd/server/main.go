@@ -13,6 +13,7 @@ import (
 	"k8s-agent-backend/internal/api"
 	"k8s-agent-backend/internal/cache"
 	"k8s-agent-backend/internal/config"
+	"k8s-agent-backend/internal/k8s"
 	"k8s-agent-backend/internal/store"
 )
 
@@ -39,9 +40,16 @@ func main() {
 		log.Fatalf("failed to initialize storage: %v", err)
 	}
 
+	clusterStore := store.NewClusterStore(pool)
+	if err := clusterStore.Init(startupCtx, cfg.K8s.Bootstrap); err != nil {
+		log.Fatalf("failed to initialize cluster storage: %v", err)
+	}
+
+	k8sManager := k8s.NewManager(clusterStore, time.Duration(cfg.K8s.RequestTimeoutSeconds)*time.Second)
+
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, redisCache.Status),
+		Handler:           api.NewRouter(snapshotStore, clusterStore, k8sManager, redisCache.Status),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

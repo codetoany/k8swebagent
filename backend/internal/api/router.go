@@ -324,8 +324,9 @@ func (h *handler) dashboardOverview(w http.ResponseWriter, r *http.Request) erro
 
 func (h *handler) dashboardResourceUsage(w http.ResponseWriter, r *http.Request) error {
 	clusterID := requestedClusterID(r)
-	return h.respondWithCachedPayload(w, r, "dashboard:resource-usage", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.dashboardService.ResourceUsagePayload(ctx, clusterID)
+	resourceRange := requestedDashboardRange(r)
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("dashboard:resource-usage:%s", resourceRange), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.dashboardService.ResourceUsagePayload(ctx, clusterID, resourceRange)
 	})
 }
 
@@ -648,6 +649,17 @@ func isNullJSON(payload json.RawMessage) bool {
 
 func requestedClusterID(r *http.Request) string {
 	return strings.TrimSpace(r.URL.Query().Get("clusterId"))
+}
+
+func requestedDashboardRange(r *http.Request) string {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("range"))) {
+	case "week":
+		return "week"
+	case "month":
+		return "month"
+	default:
+		return "today"
+	}
 }
 
 type clusterPayload struct {

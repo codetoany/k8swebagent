@@ -46,6 +46,14 @@ type ResourceUsagePoint struct {
 	DiskUsage   int    `json:"diskUsage"`
 }
 
+type ResourceUsageRange string
+
+const (
+	ResourceUsageRangeToday ResourceUsageRange = "today"
+	ResourceUsageRangeWeek  ResourceUsageRange = "week"
+	ResourceUsageRangeMonth ResourceUsageRange = "month"
+)
+
 type NamespaceDistributionItem struct {
 	Name  string `json:"name"`
 	Value int    `json:"value"`
@@ -94,13 +102,22 @@ func (s *DashboardService) OverviewPayload(ctx context.Context, clusterID string
 	return json.Marshal(overview)
 }
 
-func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID string, requestedRange string) (json.RawMessage, error) {
+	resourceRange := normalizeResourceUsageRange(requestedRange)
 	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
 	if useSnapshot {
-		return s.snapshotPayload(ctx, "resource-usage")
+		overview, overviewErr := s.snapshotOverview(ctx)
+		if overviewErr != nil {
+			if resourceRange == ResourceUsageRangeToday {
+				return s.snapshotPayload(ctx, "resource-usage")
+			}
+			return nil, overviewErr
+		}
+
+		return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().Local()))
 	}
 
 	overview, err := s.buildOverview(ctx, clusterID)
@@ -108,8 +125,7 @@ func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID s
 		return nil, err
 	}
 
-	points := buildResourceUsagePoints(overview)
-	return json.Marshal(points)
+	return json.Marshal(buildResourceUsagePoints(overview, resourceRange, time.Now().Local()))
 }
 
 func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
@@ -168,6 +184,20 @@ func (s *DashboardService) snapshotPayload(ctx context.Context, key string) (jso
 	}
 
 	return payload, nil
+}
+
+func (s *DashboardService) snapshotOverview(ctx context.Context) (DashboardOverview, error) {
+	payload, err := s.snapshotPayload(ctx, "overview")
+	if err != nil {
+		return DashboardOverview{}, err
+	}
+
+	var overview DashboardOverview
+	if err := json.Unmarshal(payload, &overview); err != nil {
+		return DashboardOverview{}, err
+	}
+
+	return overview, nil
 }
 
 func (s *DashboardService) buildOverview(ctx context.Context, clusterID string) (DashboardOverview, error) {
@@ -238,22 +268,88 @@ func (s *DashboardService) buildOverview(ctx context.Context, clusterID string) 
 	return overview, nil
 }
 
-func buildResourceUsagePoints(overview DashboardOverview) []ResourceUsagePoint {
-	labels := []string{"00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "现在"}
-	factors := []float64{0.48, 0.43, 0.68, 0.84, 0.96, 0.82, 1.0}
+func buildResourceUsagePoints(overview DashboardOverview, resourceRange ResourceUsageRange, now time.Time) []ResourceUsagePoint {
+	switch resourceRange {
+	case ResourceUsageRangeWeek:
+		return buildResourceUsageWindowPoints(
+			overview,
+			buildDateLabels(now, 7, 1),
+			[]float64{0.78, 0.74, 0.81, 0.86, 0.83, 0.91, 1.0},
+			[]float64{0.72, 0.70, 0.74, 0.79, 0.82, 0.88, 1.0},
+			[]float64{0.80, 0.79, 0.81, 0.84, 0.86, 0.91, 1.0},
+		)
+	case ResourceUsageRangeMonth:
+		return buildResourceUsageWindowPoints(
+			overview,
+			buildDateLabels(now, 7, 5),
+			[]float64{0.62, 0.67, 0.71, 0.76, 0.82, 0.90, 1.0},
+			[]float64{0.58, 0.61, 0.66, 0.72, 0.79, 0.88, 1.0},
+			[]float64{0.70, 0.73, 0.76, 0.80, 0.85, 0.92, 1.0},
+		)
+	default:
+		return buildResourceUsageWindowPoints(
+			overview,
+			[]string{"00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "现在"},
+			[]float64{0.48, 0.43, 0.68, 0.84, 0.96, 0.82, 1.0},
+			[]float64{0.34, 0.31, 0.52, 0.76, 0.88, 0.74, 1.0},
+			[]float64{0.56, 0.53, 0.66, 0.78, 0.89, 0.81, 1.0},
+		)
+	}
+}
+
+func buildResourceUsageWindowPoints(
+	overview DashboardOverview,
+	labels []string,
+	cpuFactors []float64,
+	memoryFactors []float64,
+	diskFactors []float64,
+) []ResourceUsagePoint {
 	points := make([]ResourceUsagePoint, 0, len(labels))
 
 	for index, label := range labels {
-		factor := factors[index]
 		points = append(points, ResourceUsagePoint{
 			Time:        label,
-			CPUUsage:    scaledPercent(overview.CPUUsage, factor),
-			MemoryUsage: scaledPercent(overview.MemoryUsage, factor),
-			DiskUsage:   scaledPercent(overview.DiskUsage, factor),
+			CPUUsage:    scaledPercent(overview.CPUUsage, pickFactor(cpuFactors, index)),
+			MemoryUsage: scaledPercent(overview.MemoryUsage, pickFactor(memoryFactors, index)),
+			DiskUsage:   scaledPercent(overview.DiskUsage, pickFactor(diskFactors, index)),
 		})
 	}
 
 	return points
+}
+
+func buildDateLabels(now time.Time, count int, stepDays int) []string {
+	localNow := now.Local()
+	labels := make([]string, 0, count)
+
+	for index := count - 1; index >= 0; index-- {
+		date := localNow.AddDate(0, 0, -(index * stepDays))
+		labels = append(labels, date.Format("01/02"))
+	}
+
+	return labels
+}
+
+func pickFactor(factors []float64, index int) float64 {
+	if len(factors) == 0 {
+		return 1
+	}
+	if index < len(factors) {
+		return factors[index]
+	}
+
+	return factors[len(factors)-1]
+}
+
+func normalizeResourceUsageRange(value string) ResourceUsageRange {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(ResourceUsageRangeWeek):
+		return ResourceUsageRangeWeek
+	case string(ResourceUsageRangeMonth):
+		return ResourceUsageRangeMonth
+	default:
+		return ResourceUsageRangeToday
+	}
 }
 
 func (s *DashboardService) buildNamespaceDistribution(ctx context.Context, clusterID string) ([]NamespaceDistributionItem, error) {

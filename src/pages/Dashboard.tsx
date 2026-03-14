@@ -43,15 +43,17 @@ const Dashboard = () => {
 
   useEffect(() => {
     let active = true;
-    const clusterQuery = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
+    const requestParams = selectedCluster?.id
+      ? { clusterId: selectedCluster.id, range: timeRange }
+      : { range: timeRange };
     const loadDashboard = async () => {
       setLoading(true);
       try {
         const [overviewData, resourceUsage, namespaceDistribution, recentEventsData] = await Promise.all([
-          apiClient.get<Partial<Overview>>(dashboardAPI.getClusterOverview, clusterQuery),
-          apiClient.get<ResourceUsagePoint[]>(dashboardAPI.getResourceUsage, clusterQuery),
-          apiClient.get<NamespaceDistribution[]>(dashboardAPI.getNamespaceDistribution, clusterQuery),
-          apiClient.get<DashboardEvent[]>(dashboardAPI.getRecentEvents, clusterQuery),
+          apiClient.get<Partial<Overview>>(dashboardAPI.getClusterOverview, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
+          apiClient.get<ResourceUsagePoint[]>(dashboardAPI.getResourceUsage, requestParams),
+          apiClient.get<NamespaceDistribution[]>(dashboardAPI.getNamespaceDistribution, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
+          apiClient.get<DashboardEvent[]>(dashboardAPI.getRecentEvents, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
         ]);
         if (!active) return;
         setOverview({ ...EMPTY_OVERVIEW, ...overviewData });
@@ -64,7 +66,7 @@ const Dashboard = () => {
     };
     void loadDashboard();
     return () => { active = false; };
-  }, [selectedCluster?.id, refreshVersion]);
+  }, [selectedCluster?.id, timeRange, refreshVersion]);
 
   const formatAbsoluteTime = (timestamp: string) => {
     const parsed = new Date(timestamp);
@@ -102,13 +104,8 @@ const Dashboard = () => {
 
   const displayResourceUsage = useMemo(() => {
     if (resourceUsageData.length === 0) return [];
-    if (timeRange === 'today') return resourceUsageData.map((item) => ({ name: item.time, ...item }));
-    return resourceUsageData.map((item, index) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (resourceUsageData.length - index - 1) * (timeRange === 'week' ? 1 : 5));
-      return { name: date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }), ...item };
-    });
-  }, [resourceUsageData, timeRange]);
+    return resourceUsageData.map((item) => ({ name: item.time, ...item }));
+  }, [resourceUsageData]);
 
   const nodeStatusData = useMemo(() => [{ name: '在线', value: overview.onlineNodes, className: 'bg-green-500' }, { name: '离线', value: overview.offlineNodes, className: 'bg-red-500' }], [overview.offlineNodes, overview.onlineNodes]);
   const podStatusData = useMemo(() => [{ name: '运行中', value: overview.runningPods }, { name: '已暂停', value: overview.pausedPods }, { name: '失败', value: overview.failedPods }], [overview.failedPods, overview.pausedPods, overview.runningPods]);

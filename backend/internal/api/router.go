@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 type handler struct {
 	store             *store.SnapshotStore
 	clusterStore      *store.ClusterStore
+	auditStore        *store.AuditStore
 	k8sManager        *k8s.Manager
 	redisCache        *cache.RedisCache
 	dashboardService  *service.DashboardService
@@ -47,12 +49,14 @@ type namedMeta struct {
 func NewRouter(
 	snapshotStore *store.SnapshotStore,
 	clusterStore *store.ClusterStore,
+	auditStore *store.AuditStore,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
 ) http.Handler {
 	h := &handler{
 		store:             snapshotStore,
 		clusterStore:      clusterStore,
+		auditStore:        auditStore,
 		k8sManager:        k8sManager,
 		redisCache:        redisCache,
 		dashboardService:  service.NewDashboardService(snapshotStore, k8sManager),
@@ -83,6 +87,10 @@ func NewRouter(
 
 	router.Route("/api/auth", func(r chi.Router) {
 		r.Get("/user-info", h.wrap(h.snapshot("auth", "user-info")))
+	})
+
+	router.Route("/api/audit-logs", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listAuditLogs))
 	})
 
 	router.Route("/api/dashboard", func(r chi.Router) {
@@ -268,9 +276,26 @@ func (h *handler) createCluster(w http.ResponseWriter, r *http.Request) error {
 
 	saved, err := h.clusterStore.Save(r.Context(), cluster)
 	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "cluster.create",
+			ResourceType: "cluster",
+			ResourceName: cluster.Name,
+			ClusterID:    cluster.ID,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		return err
 	}
 
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "cluster.create",
+		ResourceType: "cluster",
+		ResourceName: saved.Name,
+		ClusterID:    saved.ID,
+		ClusterName:  saved.Name,
+		Status:       store.AuditStatusSuccess,
+		Message:      "Cluster configuration saved",
+	})
 	writeJSON(w, http.StatusCreated, toClusterResponse(*saved))
 	return nil
 }
@@ -297,9 +322,27 @@ func (h *handler) updateCluster(w http.ResponseWriter, r *http.Request) error {
 
 	saved, err := h.clusterStore.Save(r.Context(), cluster)
 	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "cluster.update",
+			ResourceType: "cluster",
+			ResourceName: cluster.Name,
+			ClusterID:    cluster.ID,
+			ClusterName:  cluster.Name,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		return err
 	}
 
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "cluster.update",
+		ResourceType: "cluster",
+		ResourceName: saved.Name,
+		ClusterID:    saved.ID,
+		ClusterName:  saved.Name,
+		Status:       store.AuditStatusSuccess,
+		Message:      "Cluster configuration updated",
+	})
 	writeJSON(w, http.StatusOK, toClusterResponse(*saved))
 	return nil
 }
@@ -315,9 +358,27 @@ func (h *handler) deleteCluster(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if err := h.clusterStore.Delete(r.Context(), id); err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "cluster.delete",
+			ResourceType: "cluster",
+			ResourceName: existing.Name,
+			ClusterID:    existing.ID,
+			ClusterName:  existing.Name,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		return err
 	}
 
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "cluster.delete",
+		ResourceType: "cluster",
+		ResourceName: existing.Name,
+		ClusterID:    existing.ID,
+		ClusterName:  existing.Name,
+		Status:       store.AuditStatusSuccess,
+		Message:      "Cluster configuration deleted",
+	})
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -326,6 +387,14 @@ func (h *handler) testCluster(w http.ResponseWriter, r *http.Request) error {
 	id := chi.URLParam(r, "id")
 	result, cluster, err := h.k8sManager.CheckClusterByID(r.Context(), id)
 	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "cluster.test",
+			ResourceType: "cluster",
+			ResourceName: id,
+			ClusterID:    id,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		return err
 	}
 	if cluster == nil {
@@ -343,10 +412,53 @@ func (h *handler) testCluster(w http.ResponseWriter, r *http.Request) error {
 		result.Message,
 		connectedAt,
 	); err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "cluster.test",
+			ResourceType: "cluster",
+			ResourceName: cluster.Name,
+			ClusterID:    cluster.ID,
+			ClusterName:  cluster.Name,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		return err
 	}
 
+	status := store.AuditStatusFailed
+	if result.Status == store.ConnectionStatusConnected {
+		status = store.AuditStatusSuccess
+	}
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "cluster.test",
+		ResourceType: "cluster",
+		ResourceName: cluster.Name,
+		ClusterID:    cluster.ID,
+		ClusterName:  cluster.Name,
+		Status:       status,
+		Message:      strings.TrimSpace(result.Message),
+		Details: map[string]any{
+			"serverVersion": result.ServerVersion,
+		},
+	})
 	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+func (h *handler) listAuditLogs(w http.ResponseWriter, r *http.Request) error {
+	if h.auditStore == nil {
+		writeJSON(w, http.StatusOK, []store.AuditLogEntry{})
+		return nil
+	}
+
+	entries, err := h.auditStore.List(r.Context(), store.AuditLogFilter{
+		ClusterID: strings.TrimSpace(r.URL.Query().Get("clusterId")),
+		Limit:     requestedLimit(r, 20),
+	})
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, entries)
 	return nil
 }
 
@@ -461,6 +573,18 @@ func (h *handler) scaleWorkload(scope string) routeHandler {
 		name := chi.URLParam(r, "name")
 		item, err := h.workloadsService.Scale(r.Context(), clusterID, scope, namespace, name, *payload.Replicas)
 		if err != nil {
+			h.recordAudit(r.Context(), r, store.AuditLogInput{
+				Action:       "workload.scale",
+				ResourceType: scope,
+				ResourceName: name,
+				Namespace:    namespace,
+				ClusterID:    clusterID,
+				Status:       store.AuditStatusFailed,
+				Message:      errorMessageForAudit(err),
+				Details: map[string]any{
+					"replicas": *payload.Replicas,
+				},
+			})
 			switch {
 			case errors.Is(err, service.ErrWorkloadNotFound):
 				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
@@ -474,6 +598,18 @@ func (h *handler) scaleWorkload(scope string) routeHandler {
 		}
 
 		h.invalidateReadonlyCache(r.Context(), clusterID)
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "workload.scale",
+			ResourceType: scope,
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusSuccess,
+			Message:      fmt.Sprintf("Scaled to %d replicas", *payload.Replicas),
+			Details: map[string]any{
+				"replicas": *payload.Replicas,
+			},
+		})
 		writeJSON(w, http.StatusOK, item)
 		return nil
 	}
@@ -486,6 +622,15 @@ func (h *handler) restartWorkload(scope string) routeHandler {
 		name := chi.URLParam(r, "name")
 		item, err := h.workloadsService.Restart(r.Context(), clusterID, scope, namespace, name)
 		if err != nil {
+			h.recordAudit(r.Context(), r, store.AuditLogInput{
+				Action:       "workload.restart",
+				ResourceType: scope,
+				ResourceName: name,
+				Namespace:    namespace,
+				ClusterID:    clusterID,
+				Status:       store.AuditStatusFailed,
+				Message:      errorMessageForAudit(err),
+			})
 			switch {
 			case errors.Is(err, service.ErrWorkloadNotFound):
 				return newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
@@ -499,6 +644,15 @@ func (h *handler) restartWorkload(scope string) routeHandler {
 		}
 
 		h.invalidateReadonlyCache(r.Context(), clusterID)
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "workload.restart",
+			ResourceType: scope,
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusSuccess,
+			Message:      "Restart triggered",
+		})
 		writeJSON(w, http.StatusOK, item)
 		return nil
 	}
@@ -571,6 +725,14 @@ func (h *handler) setNodeSchedulable(w http.ResponseWriter, r *http.Request, sch
 	name := chi.URLParam(r, "name")
 	item, err := h.nodesService.SetSchedulable(r.Context(), clusterID, name, schedulable)
 	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       map[bool]string{true: "node.uncordon", false: "node.cordon"}[schedulable],
+			ResourceType: "node",
+			ResourceName: name,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		switch {
 		case errors.Is(err, service.ErrNodeNotFound):
 			return newHTTPError(http.StatusNotFound, service.NodeNotFoundMessage(name))
@@ -582,6 +744,14 @@ func (h *handler) setNodeSchedulable(w http.ResponseWriter, r *http.Request, sch
 	}
 
 	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       map[bool]string{true: "node.uncordon", false: "node.cordon"}[schedulable],
+		ResourceType: "node",
+		ResourceName: name,
+		ClusterID:    clusterID,
+		Status:       store.AuditStatusSuccess,
+		Message:      map[bool]string{true: "Scheduling restored", false: "Scheduling disabled"}[schedulable],
+	})
 	writeJSON(w, http.StatusOK, item)
 	return nil
 }
@@ -649,6 +819,15 @@ func (h *handler) deletePod(w http.ResponseWriter, r *http.Request) error {
 	name := chi.URLParam(r, "name")
 
 	if err := h.podsService.Delete(r.Context(), clusterID, namespace, name); err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action:       "pod.delete",
+			ResourceType: "pod",
+			ResourceName: name,
+			Namespace:    namespace,
+			ClusterID:    clusterID,
+			Status:       store.AuditStatusFailed,
+			Message:      errorMessageForAudit(err),
+		})
 		switch {
 		case errors.Is(err, service.ErrPodNotFound):
 			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
@@ -660,6 +839,15 @@ func (h *handler) deletePod(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action:       "pod.delete",
+		ResourceType: "pod",
+		ResourceName: name,
+		Namespace:    namespace,
+		ClusterID:    clusterID,
+		Status:       store.AuditStatusSuccess,
+		Message:      "Pod deleted",
+	})
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Pod deleted",
 	})
@@ -794,6 +982,62 @@ func findListItem(payload json.RawMessage, match func(namedMeta) bool) (json.Raw
 	}
 
 	return nil, nil
+}
+
+func requestedLimit(r *http.Request, fallback int) int {
+	value := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
+}
+
+func (h *handler) recordAudit(ctx context.Context, r *http.Request, input store.AuditLogInput) {
+	if h.auditStore == nil {
+		return
+	}
+
+	if input.ActorName == "" {
+		input.ActorName = "管理员"
+	}
+	if input.ActorEmail == "" {
+		input.ActorEmail = "admin@k8s-agent.com"
+	}
+
+	if input.ClusterID != "" && input.ClusterName == "" && h.clusterStore != nil {
+		cluster, err := h.clusterStore.GetByID(ctx, input.ClusterID)
+		if err == nil && cluster != nil {
+			input.ClusterName = cluster.Name
+		}
+	}
+
+	if err := h.auditStore.Record(ctx, input); err != nil {
+		log.Printf("audit log write failed %s %s: %v", r.Method, r.URL.Path, err)
+	}
+}
+
+func errorMessageForAudit(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	var requestErr *httpError
+	if errors.As(err, &requestErr) {
+		return requestErr.message
+	}
+
+	if status, message, ok := translateUpstreamError(err); ok {
+		_ = status
+		return message
+	}
+
+	return err.Error()
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {

@@ -272,6 +272,13 @@ const Workloads = () => {
       return;
     }
 
+    const confirmed = window.confirm(
+      `确认将 ${selectedWorkload.name} 调整到 ${replicas} 个副本吗？`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
     const actionKey = `${selectedWorkload.type}:${selectedWorkload.namespace}:${selectedWorkload.name}:scale`;
     setActionLoadingKey(actionKey);
 

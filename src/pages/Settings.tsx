@@ -16,7 +16,7 @@
   import { useNavigate } from 'react-router-dom';
   import { toast } from 'sonner';
   import apiClient from '@/lib/apiClient';
-  import { clustersAPI, replacePathParams, settingsAPI } from '@/lib/api';
+  import { auditAPI, clustersAPI, replacePathParams, settingsAPI } from '@/lib/api';
   import { type ClusterConfig, type ClusterMode, createEmptyClusterConfig } from '@/lib/clusters';
 
   // 定义设置选项类型
@@ -32,6 +32,21 @@
     apiKey: string;
     modelType: string;
     isDefault: boolean;
+  }
+
+  interface AuditLogEntry {
+    id: string;
+    action: string;
+    resourceType: string;
+    resourceName: string;
+    namespace?: string;
+    clusterId?: string;
+    clusterName?: string;
+    status: 'success' | 'failed';
+    message: string;
+    actorName: string;
+    actorEmail: string;
+    createdAt: string;
   }
 
   type ClusterEditorMode = 'create' | 'edit';
@@ -60,6 +75,9 @@
     const [isClusterEditorOpen, setIsClusterEditorOpen] = useState(false);
     const [clusterEditorMode, setClusterEditorMode] = useState<ClusterEditorMode>('create');
     const [clusterActionLoadingId, setClusterActionLoadingId] = useState('');
+    const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+    const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+    const [auditRefreshNonce, setAuditRefreshNonce] = useState(0);
     
     // AI模型相关状态
     const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -170,6 +188,49 @@
       }
     };
 
+    const getAuditActionLabel = (action: string) => {
+      switch (action) {
+        case 'cluster.create':
+          return '新增集群';
+        case 'cluster.update':
+          return '更新集群';
+        case 'cluster.delete':
+          return '删除集群';
+        case 'cluster.test':
+          return '测试连接';
+        case 'workload.scale':
+          return '扩缩容';
+        case 'workload.restart':
+          return '重启工作负载';
+        case 'pod.delete':
+          return '删除 Pod';
+        case 'node.cordon':
+          return '节点禁止调度';
+        case 'node.uncordon':
+          return '节点恢复调度';
+        default:
+          return action;
+      }
+    };
+
+    const getAuditStatusMeta = (status: AuditLogEntry['status']) => {
+      if (status === 'success') {
+        return {
+          label: '成功',
+          badgeClass: theme === 'dark'
+            ? 'border border-green-500/30 bg-green-500/10 text-green-300'
+            : 'border border-green-200 bg-green-50 text-green-700',
+        };
+      }
+
+      return {
+        label: '失败',
+        badgeClass: theme === 'dark'
+          ? 'border border-red-500/30 bg-red-500/10 text-red-300'
+          : 'border border-red-200 bg-red-50 text-red-700',
+      };
+    };
+
     const openClusterEditor = (mode: ClusterEditorMode, cluster?: Partial<ClusterConfig> | null) => {
       setClusterEditorMode(mode);
       applyClusterConfig(cluster, false);
@@ -246,6 +307,41 @@
         active = false;
       };
     }, []);
+
+    useEffect(() => {
+      let active = true;
+
+      const loadAuditLogs = async () => {
+        if (activeTab !== 'advanced') {
+          return;
+        }
+
+        setAuditLogsLoading(true);
+        try {
+          const logs = await apiClient.get<AuditLogEntry[]>(
+            auditAPI.listAuditLogs,
+            {
+              limit: 10,
+              ...(selectedClusterConfigId ? { clusterId: selectedClusterConfigId } : {}),
+            },
+          );
+
+          if (active) {
+            setAuditLogs(Array.isArray(logs) ? logs : []);
+          }
+        } finally {
+          if (active) {
+            setAuditLogsLoading(false);
+          }
+        }
+      };
+
+      void loadAuditLogs();
+
+      return () => {
+        active = false;
+      };
+    }, [activeTab, selectedClusterConfigId, auditRefreshNonce]);
 
     // 处理登出
     const handleLogout = () => {
@@ -389,6 +485,7 @@
         if (showToast) {
           toast.success('集群配置已保存');
         }
+        setAuditRefreshNonce((value) => value + 1);
         return savedCluster;
       } finally {
         setClusterSaving(false);
@@ -422,10 +519,12 @@
         await loadClusterConfig(savedCluster.id);
         if (result.status === 'connected') {
           toast.success(`连接成功${result.serverVersion ? `，集群版本 ${result.serverVersion}` : ''}`);
+          setAuditRefreshNonce((value) => value + 1);
           return;
         }
 
         toast.error(result.message || '连接测试失败');
+        setAuditRefreshNonce((value) => value + 1);
       } finally {
         setClusterTesting(false);
       }
@@ -444,6 +543,7 @@
         );
         await loadClusterConfig(selectedClusterConfigId === cluster.id ? undefined : selectedClusterConfigId);
         toast.success('集群已删除');
+        setAuditRefreshNonce((value) => value + 1);
       } finally {
         setClusterActionLoadingId('');
       }
@@ -461,6 +561,7 @@
         );
         await loadClusterConfig(cluster.id);
         toast.success('已设为默认集群');
+        setAuditRefreshNonce((value) => value + 1);
       } finally {
         setClusterActionLoadingId('');
       }
@@ -1286,6 +1387,90 @@
 
                           <div className={`rounded-lg border p-3 text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
                             资源页已经支持按集群切换显示；这里保存的是接入配置。建议先保存，再通过卡片编辑补充或更新凭证，然后在弹出的面板中测试连接。
+                          </div>
+
+                          <div className={`rounded-xl border p-4 ${
+                            theme === 'dark' ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'
+                          }`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <h4 className={`text-base font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                  最近操作审计
+                                </h4>
+                                <p className={`mt-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                  展示最近 10 条集群接入和资源写操作记录，便于确认谁在什么时间做了什么变更。
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setAuditRefreshNonce((value) => value + 1)}
+                                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                  theme === 'dark'
+                                    ? 'bg-gray-700 text-gray-100 hover:bg-gray-600'
+                                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                }`}
+                              >
+                                <RefreshCw size={13} className={`mr-1.5 ${auditLogsLoading ? 'animate-spin' : ''}`} />
+                                刷新
+                              </button>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                              {auditLogsLoading ? (
+                                <div className={`rounded-lg border px-4 py-6 text-sm ${
+                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }`}>
+                                  正在加载审计日志...
+                                </div>
+                              ) : auditLogs.length === 0 ? (
+                                <div className={`rounded-lg border px-4 py-6 text-sm ${
+                                  theme === 'dark' ? 'border-gray-700 bg-gray-900/40 text-gray-400' : 'border-gray-200 bg-gray-50 text-gray-500'
+                                }`}>
+                                  当前还没有可显示的操作记录。
+                                </div>
+                              ) : (
+                                auditLogs.map((entry) => {
+                                  const statusMeta = getAuditStatusMeta(entry.status);
+                                  return (
+                                    <div
+                                      key={entry.id}
+                                      className={`rounded-lg border px-4 py-3 ${
+                                        theme === 'dark' ? 'border-gray-700 bg-gray-900/40' : 'border-gray-200 bg-gray-50'
+                                      }`}
+                                    >
+                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${statusMeta.badgeClass}`}>
+                                              {statusMeta.label}
+                                            </span>
+                                            <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                              {getAuditActionLabel(entry.action)}
+                                            </span>
+                                            <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                              {entry.namespace ? `${entry.namespace}/` : ''}{entry.resourceName || '-'}
+                                            </span>
+                                          </div>
+                                          <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                            {entry.message || '已记录操作结果'}
+                                          </p>
+                                          <div className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${
+                                            theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                                          }`}>
+                                            <span>资源类型：{entry.resourceType || '-'}</span>
+                                            <span>集群：{entry.clusterName || entry.clusterId || '未指定'}</span>
+                                            <span>操作者：{entry.actorName || entry.actorEmail || '系统'}</span>
+                                          </div>
+                                        </div>
+                                        <div className={`shrink-0 text-xs ${theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}`}>
+                                          {formatClusterDate(entry.createdAt)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
                           </div>
                         </>
                       )}

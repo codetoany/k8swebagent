@@ -67,6 +67,10 @@ export const settingsAPI = {
   getAIModels: "/settings/ai-models",
 };
 
+export const auditAPI = {
+  listAuditLogs: "/audit-logs",
+};
+
 export function replacePathParams(
   path: string,
   params: Record<string, string | number>,

@@ -358,11 +358,10 @@ func buildResourceUsageWindowPoints(
 }
 
 func buildDateLabels(now time.Time, count int, stepDays int) []string {
-	localNow := now.Local()
 	labels := make([]string, 0, count)
 
 	for index := count - 1; index >= 0; index-- {
-		date := localNow.AddDate(0, 0, -(index * stepDays))
+		date := now.AddDate(0, 0, -(index * stepDays))
 		labels = append(labels, date.Format("01/02"))
 	}
 
@@ -370,14 +369,13 @@ func buildDateLabels(now time.Time, count int, stepDays int) []string {
 }
 
 func buildCurrentWeekLabels(now time.Time) []string {
-	localNow := now.Local()
-	weekday := int(localNow.Weekday())
+	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
 
-	start := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location()).AddDate(0, 0, -(weekday - 1))
-	end := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(weekday - 1))
+	end := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	labels := make([]string, 0, weekday)
 	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
@@ -388,11 +386,10 @@ func buildCurrentWeekLabels(now time.Time) []string {
 }
 
 func buildCurrentMonthLabels(now time.Time) []string {
-	localNow := now.Local()
-	start := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, localNow.Location())
-	end := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	end := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	labels := make([]string, 0, localNow.Day())
+	labels := make([]string, 0, now.Day())
 	for date := start; !date.After(end); date = date.AddDate(0, 0, 1) {
 		labels = append(labels, date.Format("01/02"))
 	}
@@ -401,17 +398,16 @@ func buildCurrentMonthLabels(now time.Time) []string {
 }
 
 func buildCurrentDayLabels(now time.Time) []string {
-	localNow := now.Local()
 	labels := []string{"00:00"}
-	currentSlotStart := (localNow.Hour() / 4) * 4
+	currentSlotStart := (now.Hour() / 4) * 4
 
 	for hour := 4; hour < currentSlotStart; hour += 4 {
 		labels = append(labels, fmt.Sprintf("%02d:00", hour))
 	}
 
-	currentLabel := localNow.Format("15:04")
-	if localNow.Minute() == 0 {
-		currentLabel = fmt.Sprintf("%02d:00", localNow.Hour())
+	currentLabel := now.Format("15:04")
+	if now.Minute() == 0 {
+		currentLabel = fmt.Sprintf("%02d:00", now.Hour())
 	}
 	if labels[len(labels)-1] != currentLabel {
 		labels = append(labels, currentLabel)

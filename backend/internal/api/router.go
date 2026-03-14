@@ -143,6 +143,13 @@ func (h *handler) wrap(next routeHandler) http.HandlerFunc {
 				return
 			}
 
+			if errors.Is(err, k8s.ErrClusterNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{
+					"message": "Cluster not found",
+				})
+				return
+			}
+
 			log.Printf("request failed %s %s: %v", r.Method, r.URL.Path, err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"message": "Internal server error",
@@ -164,7 +171,7 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) error {
 		redisStatus = h.redisCache.Status()
 	}
 
-	k8sStatus, err := h.k8sManager.CheckDefaultCluster(ctx)
+	k8sStatus, err := h.k8sManager.CheckClusterSelection(ctx, requestedClusterID(r))
 	if err != nil {
 		return err
 	}
@@ -302,61 +309,70 @@ func (h *handler) snapshot(scope string, key string) routeHandler {
 }
 
 func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "nodes:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.nodesService.ListPayload(ctx)
+		return h.nodesService.ListPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) dashboardOverview(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "dashboard:overview", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.dashboardService.OverviewPayload(ctx)
+		return h.dashboardService.OverviewPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) dashboardResourceUsage(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "dashboard:resource-usage", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.dashboardService.ResourceUsagePayload(ctx)
+		return h.dashboardService.ResourceUsagePayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) dashboardNamespaceDistribution(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "dashboard:namespace-distribution", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.dashboardService.NamespaceDistributionPayload(ctx)
+		return h.dashboardService.NamespaceDistributionPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) dashboardRecentEvents(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "dashboard:recent-events", readonlyEventsTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.dashboardService.RecentEventsPayload(ctx)
+		return h.dashboardService.RecentEventsPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) listPods(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "pods:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.podsService.ListPayload(ctx)
+		return h.podsService.ListPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) listNamespaces(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	return h.respondWithCachedPayload(w, r, "namespaces:list", readonlyNamespaceTTL, func(ctx context.Context) (json.RawMessage, error) {
-		return h.namespacesService.ListPayload(ctx)
+		return h.namespacesService.ListPayload(ctx, clusterID)
 	})
 }
 
 func (h *handler) listWorkload(scope string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
+		clusterID := requestedClusterID(r)
 		return h.respondWithCachedPayload(w, r, fmt.Sprintf("workloads:%s:list", scope), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-			return h.workloadsService.ListPayload(ctx, scope)
+			return h.workloadsService.ListPayload(ctx, clusterID, scope)
 		})
 	}
 }
 
 func (h *handler) workloadDetail(scope string) routeHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
+		clusterID := requestedClusterID(r)
 		namespace := chi.URLParam(r, "namespace")
 		name := chi.URLParam(r, "name")
 		return h.respondWithCachedPayload(w, r, fmt.Sprintf("workloads:%s:detail:%s:%s", scope, namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-			payload, err := h.workloadsService.DetailPayload(ctx, scope, namespace, name)
+			payload, err := h.workloadsService.DetailPayload(ctx, clusterID, scope, namespace, name)
 			if err != nil {
 				if errors.Is(err, service.ErrWorkloadNotFound) {
 					return nil, newHTTPError(http.StatusNotFound, service.WorkloadNotFoundMessage(scope, namespace, name))
@@ -385,9 +401,10 @@ func (h *handler) list(scope string, key string) routeHandler {
 }
 
 func (h *handler) nodesMetrics(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	metricKey := chi.URLParam(r, "name")
 	return h.respondWithCachedPayload(w, r, fmt.Sprintf("nodes:metrics:%s", metricKey), readonlyMetricsTTL, func(ctx context.Context) (json.RawMessage, error) {
-		payload, err := h.nodesService.MetricsPayload(ctx, metricKey)
+		payload, err := h.nodesService.MetricsPayload(ctx, clusterID, metricKey)
 		if err != nil {
 			if errors.Is(err, service.ErrNodeNotFound) {
 				return nil, newHTTPError(http.StatusNotFound, fmt.Sprintf("Node metrics not found for %s", metricKey))
@@ -400,9 +417,10 @@ func (h *handler) nodesMetrics(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	name := chi.URLParam(r, "name")
 	return h.respondWithCachedPayload(w, r, fmt.Sprintf("nodes:detail:%s", name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		listPayload, err := h.nodesService.ListPayload(ctx)
+		listPayload, err := h.nodesService.ListPayload(ctx, clusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -422,9 +440,10 @@ func (h *handler) nodeDetail(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
-	payload, err := h.podsService.LogsPayload(r.Context(), namespace, name)
+	payload, err := h.podsService.LogsPayload(r.Context(), clusterID, namespace, name)
 	if err != nil {
 		if errors.Is(err, service.ErrPodNotFound) {
 			return newHTTPError(http.StatusNotFound, service.PodNotFoundMessage(namespace, name))
@@ -437,10 +456,11 @@ func (h *handler) podLogs(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) podMetrics(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pods:metrics:%s:%s", namespace, name), readonlyMetricsTTL, func(ctx context.Context) (json.RawMessage, error) {
-		payload, err := h.podsService.MetricsPayload(ctx, namespace, name)
+		payload, err := h.podsService.MetricsPayload(ctx, clusterID, namespace, name)
 		if err != nil {
 			if errors.Is(err, service.ErrPodNotFound) {
 				return nil, newHTTPError(http.StatusNotFound, fmt.Sprintf("Pod metrics not found for %s/%s", namespace, name))
@@ -453,10 +473,11 @@ func (h *handler) podMetrics(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")
 	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pods:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
-		listPayload, err := h.podsService.ListPayload(ctx)
+		listPayload, err := h.podsService.ListPayload(ctx, clusterID)
 		if err != nil {
 			return nil, err
 		}
@@ -476,9 +497,10 @@ func (h *handler) podDetail(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
 	name := chi.URLParam(r, "name")
 	return h.respondWithCachedPayload(w, r, fmt.Sprintf("namespaces:detail:%s", name), readonlyNamespaceTTL, func(ctx context.Context) (json.RawMessage, error) {
-		payload, err := h.namespacesService.DetailPayload(ctx, name)
+		payload, err := h.namespacesService.DetailPayload(ctx, clusterID, name)
 		if err != nil {
 			if errors.Is(err, service.ErrNamespaceNotFound) {
 				return nil, newHTTPError(http.StatusNotFound, service.NamespaceNotFoundMessage(name))
@@ -622,6 +644,10 @@ func writeRawJSON(w http.ResponseWriter, statusCode int, payload json.RawMessage
 
 func isNullJSON(payload json.RawMessage) bool {
 	return strings.TrimSpace(string(payload)) == "null"
+}
+
+func requestedClusterID(r *http.Request) string {
+	return strings.TrimSpace(r.URL.Query().Get("clusterId"))
 }
 
 type clusterPayload struct {

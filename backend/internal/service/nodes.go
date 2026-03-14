@@ -70,8 +70,8 @@ func NewNodesService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Manager
 	}
 }
 
-func (s *NodesService) ListPayload(ctx context.Context) (json.RawMessage, error) {
-	nodes, err := s.list(ctx)
+func (s *NodesService) ListPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	nodes, err := s.list(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +79,8 @@ func (s *NodesService) ListPayload(ctx context.Context) (json.RawMessage, error)
 	return json.Marshal(nodes)
 }
 
-func (s *NodesService) MetricsPayload(ctx context.Context, name string) (json.RawMessage, error) {
-	nodes, source, err := s.listWithSource(ctx)
+func (s *NodesService) MetricsPayload(ctx context.Context, clusterID string, name string) (json.RawMessage, error) {
+	nodes, source, err := s.listWithSource(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,13 +105,13 @@ func (s *NodesService) MetricsPayload(ctx context.Context, name string) (json.Ra
 	return nil, ErrNodeNotFound
 }
 
-func (s *NodesService) list(ctx context.Context) ([]NodeListItem, error) {
-	nodes, _, err := s.listWithSource(ctx)
+func (s *NodesService) list(ctx context.Context, clusterID string) ([]NodeListItem, error) {
+	nodes, _, err := s.listWithSource(ctx, clusterID)
 	return nodes, err
 }
 
-func (s *NodesService) listWithSource(ctx context.Context) ([]NodeListItem, string, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *NodesService) listWithSource(ctx context.Context, clusterID string) ([]NodeListItem, string, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		nodes, err := s.snapshotNodes(ctx)

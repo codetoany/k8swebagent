@@ -9,177 +9,38 @@ import { motion } from 'framer-motion';
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
+import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '@/lib/apiClient';
 import { namespacesAPI, podsAPI } from '@/lib/api';
+import ClusterSelector from '@/components/ClusterSelector';
+import TablePagination from '@/components/TablePagination';
 
-// 模拟 Pod 数据
-const podsData = [
-  {
-    id: 'web-app-789df',
-    name: 'web-app-789df',
-    namespace: 'default',
-    status: 'running',
-    node: 'node-1',
-    ip: '10.244.1.10',
-    containers: [
-      { name: 'web-app', ready: true, restartCount: 0, image: 'nginx:1.23' },
-      { name: 'sidecar', ready: true, restartCount: 0, image: 'busybox:latest' }
-    ],
-    age: '5d',
-    cpuUsage: 12,
-    memoryUsage: 256,
-    labels: {
-      'app': 'web-app',
-      'version': 'v1'
-    }
-  },
-  {
-    id: 'api-server-567gh',
-    name: 'api-server-567gh',
-    namespace: 'default',
-    status: 'running',
-    node: 'node-2',
-    ip: '10.244.2.15',
-    containers: [
-      { name: 'api-server', ready: true, restartCount: 1, image: 'my-api:v2.1.0' }
-    ],
-    age: '3d',
-    cpuUsage: 45,
-    memoryUsage: 1024,
-    labels: {
-      'app': 'api-server',
-      'environment': 'production'
-    }
-  },
-  {
-    id: 'database-123ab',
-    name: 'database-123ab',
-    namespace: 'default',
-    status: 'running',
-    node: 'node-3',
-    ip: '10.244.3.20',
-    containers: [
-      { name: 'postgres', ready: true, restartCount: 0, image: 'postgres:14' }
-    ],
-    age: '7d',
-    cpuUsage: 28,
-    memoryUsage: 2048,
-    labels: {
-      'app': 'database',
-      'db': 'postgres'
-    }
-  },
-  {
-    id: 'worker-456cd',
-    name: 'worker-456cd',
-    namespace: 'default',
-    status: 'running',
-    node: 'node-4',
-    ip: '10.244.4.25',
-    containers: [
-      { name: 'worker', ready: true, restartCount: 2, image: 'worker:v1.3.0' }
-    ],
-    age: '2d',
-    cpuUsage: 75,
-    memoryUsage: 512,
-    labels: {
-      'app': 'worker',
-      'queue': 'tasks'
-    }
-  },
-  {
-    id: 'monitoring-789ef',
-    name: 'monitoring-789ef',
-    namespace: 'kube-system',
-    status: 'running',
-    node: 'node-5',
-    ip: '10.244.5.30',
-    containers: [
-      { name: 'prometheus', ready: true, restartCount: 0, image: 'prometheus:latest' },
-      { name: 'grafana', ready: true, restartCount: 0, image: 'grafana:latest' }
-    ],
-    age: '10d',
-    cpuUsage: 18,
-    memoryUsage: 768,
-    labels: {
-      'app': 'monitoring',
-      'component': 'metrics'
-    }
-  },
-  {
-    id: 'cron-job-123gh',
-    name: 'cron-job-123gh',
-    namespace: 'default',
-    status: 'succeeded',
-    node: 'node-6',
-    ip: '10.244.6.35',
-    containers: [
-      { name: 'cron-task', ready: false, restartCount: 0, image: 'cron-job:v1.0.0' }
-    ],
-    age: '1h',
-    cpuUsage: 5,
-    memoryUsage: 128,
-    labels: {
-      'app': 'cron-job',
-      'schedule': 'hourly'
-    }
-  },
-  {
-    id: 'broken-pod-456ij',
-    name: 'broken-pod-456ij',
-    namespace: 'default',
-    status: 'failed',
-    node: 'node-1',
-    ip: '10.244.1.40',
-    containers: [
-      { name: 'faulty-app', ready: false, restartCount: 15, image: 'faulty-app:v1.0.0' }
-    ],
-    age: '30m',
-    cpuUsage: 0,
-    memoryUsage: 0,
-    labels: {
-      'app': 'broken-app',
-      'test': 'failure'
-    }
-  },
-  {
-    id: 'paused-pod-789kl',
-    name: 'paused-pod-789kl',
-    namespace: 'dev',
-    status: 'paused',
-    node: 'node-2',
-    ip: '10.244.2.45',
-    containers: [
-      { name: 'test-app', ready: false, restartCount: 0, image: 'test-app:v0.1.0' }
-    ],
-    age: '2d',
-    cpuUsage: 0,
-    memoryUsage: 0,
-    labels: {
-      'app': 'test-app',
-      'environment': 'development'
-    }
-  }
-];
-
-// 模拟命名空间数据
-const namespaces = ['全部', 'default', 'kube-system', 'dev', 'prod', 'kube-public'];
+const podsData: any[] = [];
+const namespaces = ['全部'];
 
 const Pods = () => {
   const { theme, toggleTheme } = useThemeContext();
+  const {
+    enabledClusters,
+    loading: clustersLoading,
+    selectedCluster,
+    setSelectedClusterId,
+  } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [pods, setPods] = useState(podsData);
+  const [pods, setPods] = useState<any[]>([]);
   const [namespaceOptions, setNamespaceOptions] = useState(namespaces);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPod, setSelectedPod] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [selectedNamespace, setSelectedNamespace] = useState('全部');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let active = true;
@@ -188,21 +49,30 @@ const Pods = () => {
       setLoading(true);
       try {
         const [podList, namespaceList] = await Promise.all([
-          apiClient.get<any[]>(podsAPI.listPods),
-          apiClient.get<Array<{ name: string }>>(namespacesAPI.listNamespaces),
+          apiClient.get<any[]>(
+            podsAPI.listPods,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<Array<{ name: string }>>(
+            namespacesAPI.listNamespaces,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
         ]);
 
         if (!active) {
           return;
         }
 
-        if (Array.isArray(podList) && podList.length > 0) {
+        if (Array.isArray(podList)) {
           setPods(podList);
+          setSelectedPod(null);
         }
 
-        if (Array.isArray(namespaceList) && namespaceList.length > 0) {
-          setNamespaceOptions(['全部', ...namespaceList.map((namespace) => namespace.name)]);
-        }
+        const nextNamespaces = Array.isArray(namespaceList)
+          ? ['全部', ...namespaceList.map((namespace) => namespace.name)]
+          : ['全部'];
+        setNamespaceOptions(nextNamespaces);
+        setSelectedNamespace((current) => (nextNamespaces.includes(current) ? current : '全部'));
       } finally {
         if (active) {
           setLoading(false);
@@ -215,7 +85,11 @@ const Pods = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [selectedCluster?.id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedNamespace, sortConfig, pageSize, selectedCluster?.id]);
 
   // 处理登出
   const handleLogout = () => {
@@ -253,6 +127,7 @@ const Pods = () => {
       }
       return 0;
     });
+  const paginatedPods = filteredAndSortedPods.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // 处理排序
   const handleSort = (key: string) => {
@@ -632,10 +507,18 @@ const Pods = () => {
                 <div>
                   <h2 className="text-xl font-bold mb-1">集群 Pods</h2>
                   <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                    管理和监控 Kubernetes 集群中的所有 Pods
+                    管理和监控 {selectedCluster?.name || '当前'} Kubernetes 集群中的所有 Pods
                   </p>
                 </div>
-                <div className="flex items-center space-x-3 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <ClusterSelector
+                    theme={theme}
+                    clusters={enabledClusters}
+                    value={selectedCluster?.id || ''}
+                    loading={clustersLoading}
+                    onChange={setSelectedClusterId}
+                    className="w-full md:w-56"
+                  />
                   <div className={`relative flex-1 md:flex-none md:w-64 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg overflow-hidden`}>
                     <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`} />
                     <input
@@ -753,7 +636,7 @@ const Pods = () => {
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                      {filteredAndSortedPods.map((pod) => (
+                      {paginatedPods.map((pod) => (
                         <tr 
                           key={pod.id}
                           className={`${theme === 'dark' ? 'hover:bg-gray-750' : 'hover:bg-gray-50'} cursor-pointer transition-colors`}
@@ -829,6 +712,20 @@ const Pods = () => {
                   <div className="p-8 text-center"><Database size={48} className={`mx-auto mb-4 opacity-20 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
                     <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>没有找到匹配的 Pod</p>
                   </div>
+                )}
+
+                {filteredAndSortedPods.length > 0 && (
+                  <TablePagination
+                    theme={theme}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={filteredAndSortedPods.length}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setCurrentPage(1);
+                    }}
+                  />
                 )}
               </motion.div>
               

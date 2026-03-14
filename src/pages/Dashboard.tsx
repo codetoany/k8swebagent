@@ -12,79 +12,46 @@ import {
 
 } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
+import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '@/lib/apiClient';
 import { dashboardAPI } from '@/lib/api';
-
-// 模拟数据
-const cpuUsageData = [
-  { name: '00:00', usage: 30 },
-  { name: '04:00', usage: 25 },
-  { name: '08:00', usage: 45 },
-  { name: '12:00', usage: 60 },
-  { name: '16:00', usage: 70 },
-  { name: '20:00', usage: 55 },
-  { name: '现在', usage: 65 },
-];
-
-const memoryUsageData = [
-  { name: '00:00', usage: 40 },
-  { name: '04:00', usage: 35 },
-  { name: '08:00', usage: 55 },
-  { name: '12:00', usage: 75 },
-  { name: '16:00', usage: 80 },
-  { name: '20:00', usage: 70 },
-  { name: '现在', usage: 78 },
-];
-
-const namespaceData = [
-  { name: 'default', value: 12 },
-  { name: 'kube-system', value: 18 },
-  { name: 'kube-public', value: 3 },
-  { name: 'dev', value: 8 },
-  { name: 'prod', value: 15 },
-];
-
-const nodeStatusData = [
-  { name: '在线', value: 5 },
-  { name: '离线', value: 1 },
-];
-
-const podStatusData = [
-  { name: '运行中', value: 45 },
-  { name: '已暂停', value: 3 },
-  { name: '失败', value: 2 },
-  { name: '未知', value: 1 },
-];
+import ClusterSelector from '@/components/ClusterSelector';
 
 const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
 const Dashboard = () => {
   const { theme, toggleTheme } = useThemeContext();
+  const {
+    enabledClusters,
+    loading: clustersLoading,
+    selectedCluster,
+    setSelectedClusterId,
+  } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [overview, setOverview] = useState({
-    totalNodes: 6,
-    onlineNodes: 5,
-    offlineNodes: 1,
-    totalPods: 45,
-    runningPods: 40,
-    failedPods: 2,
-    pausedPods: 3,
-    totalWorkloads: 15,
-    cpuUsage: 65,
-    memoryUsage: 78,
-    diskUsage: 42,
+    totalNodes: 0,
+    onlineNodes: 0,
+    offlineNodes: 0,
+    totalPods: 0,
+    runningPods: 0,
+    failedPods: 0,
+    pausedPods: 0,
+    totalWorkloads: 0,
+    cpuUsage: 0,
+    memoryUsage: 0,
+    diskUsage: 0,
   });
-  const [cpuChartData, setCpuChartData] = useState(cpuUsageData);
-  const [memoryChartData, setMemoryChartData] = useState(memoryUsageData);
-  const [namespaceChartData, setNamespaceChartData] = useState(namespaceData);
-  const [nodeChartData, setNodeChartData] = useState(nodeStatusData);
-  const [podChartData, setPodChartData] = useState(podStatusData);
+  const [cpuChartData, setCpuChartData] = useState<Array<{ name: string; usage: number }>>([]);
+  const [memoryChartData, setMemoryChartData] = useState<Array<{ name: string; usage: number }>>([]);
+  const [namespaceChartData, setNamespaceChartData] = useState<Array<{ name: string; value: number }>>([]);
+  const [nodeChartData, setNodeChartData] = useState<Array<{ name: string; value: number }>>([]);
+  const [podChartData, setPodChartData] = useState<Array<{ name: string; value: number }>>([]);
   const [recentEvents, setRecentEvents] = useState<any[]>([]);
 
   // 处理登出
@@ -108,10 +75,22 @@ const Dashboard = () => {
       setLoading(true);
       try {
         const [overviewData, resourceUsage, namespaceDistribution, recentEventsData] = await Promise.all([
-          apiClient.get<any>(dashboardAPI.getClusterOverview),
-          apiClient.get<any[]>(dashboardAPI.getResourceUsage),
-          apiClient.get<Array<{ name: string; value: number }>>(dashboardAPI.getNamespaceDistribution),
-          apiClient.get<any[]>(dashboardAPI.getRecentEvents),
+          apiClient.get<any>(
+            dashboardAPI.getClusterOverview,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<any[]>(
+            dashboardAPI.getResourceUsage,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<Array<{ name: string; value: number }>>(
+            dashboardAPI.getNamespaceDistribution,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<any[]>(
+            dashboardAPI.getRecentEvents,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
         ]);
 
         if (!active) {
@@ -134,10 +113,15 @@ const Dashboard = () => {
         if (Array.isArray(resourceUsage) && resourceUsage.length > 0) {
           setCpuChartData(resourceUsage.map((item) => ({ name: item.time, usage: item.cpuUsage })));
           setMemoryChartData(resourceUsage.map((item) => ({ name: item.time, usage: item.memoryUsage })));
+        } else {
+          setCpuChartData([]);
+          setMemoryChartData([]);
         }
 
         if (Array.isArray(namespaceDistribution) && namespaceDistribution.length > 0) {
           setNamespaceChartData(namespaceDistribution);
+        } else {
+          setNamespaceChartData([]);
         }
 
         if (Array.isArray(recentEventsData)) {
@@ -155,7 +139,7 @@ const Dashboard = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [selectedCluster?.id]);
 
   const formatRelativeTime = (timestamp: string) => {
     const diffMinutes = Math.max(1, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000));
@@ -189,6 +173,16 @@ const Dashboard = () => {
       iconClass: 'text-green-500',
       panelClass: theme === 'dark' ? 'bg-gray-700 border-green-900/30' : 'bg-green-50 border-green-100',
     };
+  };
+
+  const getLoadLevel = (value: number) => {
+    if (value >= 80) {
+      return '高负载';
+    }
+    if (value >= 50) {
+      return '中等负载';
+    }
+    return '低负载';
   };
 
   const containerVariants = {
@@ -354,6 +348,28 @@ const Dashboard = () => {
               variants={containerVariants}
               className="space-y-6"
             >
+              <motion.div
+                variants={itemVariants}
+                className={`p-4 rounded-xl flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${
+                  theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'
+                } border shadow-sm`}
+              >
+                <div>
+                  <h2 className="text-lg font-semibold">当前资源集群</h2>
+                  <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {selectedCluster?.name || '未选择集群'}
+                  </p>
+                </div>
+                <ClusterSelector
+                  theme={theme}
+                  clusters={enabledClusters}
+                  value={selectedCluster?.id || ''}
+                  loading={clustersLoading}
+                  onChange={setSelectedClusterId}
+                  className="w-full md:w-64"
+                />
+              </motion.div>
+
               {/* 状态卡片 */}
               <motion.div 
                 variants={itemVariants}
@@ -370,7 +386,7 @@ const Dashboard = () => {
                     <div>
                       <p className="text-2xl font-bold">{overview.totalNodes}</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        <span className="text-green-500">+1</span> 较上周
+                        当前集群实时数据
                       </p>
                     </div>
                     <div className="flex items-center">
@@ -392,7 +408,7 @@ const Dashboard = () => {
                     <div>
                       <p className="text-2xl font-bold">{overview.totalPods}</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        <span className="text-green-500">+5</span> 较上周
+                        运行中 {overview.runningPods} 个
                       </p>
                     </div>
                     <div className="flex items-center">
@@ -414,12 +430,12 @@ const Dashboard = () => {
                     <div>
                       <p className="text-2xl font-bold">{overview.cpuUsage}%</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        <span className="text-red-500">+10%</span> 较上周
+                        当前集群实时数据
                       </p>
                     </div>
                     <div className="flex items-center">
                       <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-                        中等负载
+                        {getLoadLevel(overview.cpuUsage)}
                       </span>
                     </div>
                   </div>
@@ -436,12 +452,12 @@ const Dashboard = () => {
                     <div>
                       <p className="text-2xl font-bold">{overview.memoryUsage}%</p>
                       <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        <span className="text-red-500">+5%</span> 较上周
+                        当前集群实时数据
                       </p>
                     </div>
                     <div className="flex items-center">
                       <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                        高负载
+                        {getLoadLevel(overview.memoryUsage)}
                       </span>
                     </div>
                   </div>

@@ -10,12 +10,14 @@
     BarChart, Brain, Edit, Trash, Check
   } from 'lucide-react';
   import { useThemeContext } from '@/contexts/themeContext';
+  import { useClusterContext } from '@/contexts/clusterContext';
   import { useContext } from 'react';
   import { AuthContext } from '@/contexts/authContext';
   import { useNavigate } from 'react-router-dom';
   import { toast } from 'sonner';
   import apiClient from '@/lib/apiClient';
   import { clustersAPI, replacePathParams, settingsAPI } from '@/lib/api';
+  import { type ClusterConfig, type ClusterMode, createEmptyClusterConfig } from '@/lib/clusters';
 
   // 定义设置选项类型
   type ThemeOption = 'light' | 'dark' | 'system';
@@ -32,50 +34,9 @@
     isDefault: boolean;
   }
 
-  type ClusterMode = 'token' | 'kubeconfig' | 'in-cluster';
-
-  interface ClusterConfig {
-    id: string;
-    name: string;
-    mode: ClusterMode;
-    apiServer: string;
-    kubeconfigPath: string;
-    kubeconfig: string;
-    token: string;
-    caData: string;
-    insecureSkipTLSVerify: boolean;
-    isDefault: boolean;
-    isEnabled: boolean;
-    hasToken: boolean;
-    hasKubeconfig: boolean;
-    lastConnectionStatus: string;
-    lastConnectionError: string;
-    lastConnectedAt: string;
-    updatedAt: string;
-  }
-
-  const createEmptyClusterConfig = (): ClusterConfig => ({
-    id: '',
-    name: '',
-    mode: 'token',
-    apiServer: '',
-    kubeconfigPath: '',
-    kubeconfig: '',
-    token: '',
-    caData: '',
-    insecureSkipTLSVerify: false,
-    isDefault: true,
-    isEnabled: true,
-    hasToken: false,
-    hasKubeconfig: false,
-    lastConnectionStatus: 'unknown',
-    lastConnectionError: '',
-    lastConnectedAt: '',
-    updatedAt: '',
-  });
-
   const SettingsPage = () => {
     const { theme, toggleTheme } = useThemeContext();
+    const { clusters, refreshClusters } = useClusterContext();
     const { logout } = useContext(AuthContext);
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -91,6 +52,7 @@
     const [showEvents, setShowEvents] = useState(true);
     const [clusterConfig, setClusterConfig] = useState<ClusterConfig>(createEmptyClusterConfig);
     const [savedClusterConfig, setSavedClusterConfig] = useState<ClusterConfig>(createEmptyClusterConfig);
+    const [selectedClusterConfigId, setSelectedClusterConfigId] = useState('');
     const [clusterSaving, setClusterSaving] = useState(false);
     const [clusterTesting, setClusterTesting] = useState(false);
     
@@ -121,11 +83,12 @@
     };
 
     const loadClusterConfig = async (preferredClusterId?: string) => {
-      const clusters = await apiClient.get<ClusterConfig[]>(clustersAPI.listClusters);
+      const availableClusters = await refreshClusters();
       const nextCluster = preferredClusterId
-        ? clusters.find((cluster) => cluster.id === preferredClusterId) || null
-        : clusters.find((cluster) => cluster.isDefault) || clusters[0] || null;
+        ? availableClusters.find((cluster) => cluster.id === preferredClusterId) || null
+        : availableClusters.find((cluster) => cluster.isDefault) || availableClusters[0] || null;
 
+      setSelectedClusterConfigId(nextCluster?.id || '');
       applyClusterConfig(nextCluster);
       return nextCluster;
     };
@@ -137,10 +100,10 @@
       const loadSettings = async () => {
         setLoading(true);
         try {
-          const [settings, models, clusters] = await Promise.all([
+          const [settings, models] = await Promise.all([
             apiClient.get<any>(settingsAPI.getSettings),
             apiClient.get<AIModel[]>(settingsAPI.getAIModels),
-            apiClient.get<ClusterConfig[]>(clustersAPI.listClusters),
+            loadClusterConfig(),
           ]);
 
           if (!active) {
@@ -167,10 +130,6 @@
           }
           if (Array.isArray(models)) {
             setAiModels(models.map((model) => ({ ...model, apiKey: model.apiKey ?? '' })));
-          }
-          if (Array.isArray(clusters)) {
-            const defaultCluster = clusters.find((cluster) => cluster.isDefault) || clusters[0] || null;
-            applyClusterConfig(defaultCluster);
           }
         } finally {
           if (active) {
@@ -241,6 +200,20 @@
       }));
     };
 
+    const handleClusterConfigSelection = (clusterId: string) => {
+      setSelectedClusterConfigId(clusterId);
+      const selectedCluster = clusters.find((cluster) => cluster.id === clusterId) || null;
+      applyClusterConfig(selectedCluster);
+    };
+
+    const handleCreateClusterConfig = () => {
+      setSelectedClusterConfigId('');
+      applyClusterConfig({
+        ...createEmptyClusterConfig(),
+        isDefault: clusters.length === 0,
+      });
+    };
+
     const buildClusterPayload = () => {
       const name = clusterConfig.name.trim();
       if (!name) {
@@ -251,7 +224,7 @@
       const payload: Record<string, unknown> = {
         name,
         mode: clusterConfig.mode,
-        isDefault: true,
+        isDefault: clusterConfig.isDefault,
         isEnabled: clusterConfig.isEnabled,
         insecureSkipTLSVerify: clusterConfig.insecureSkipTLSVerify,
       };
@@ -348,6 +321,7 @@
 
     const handleCancelSettings = () => {
       if (activeTab === 'advanced') {
+        setSelectedClusterConfigId(savedClusterConfig.id);
         updateClusterConfig({
           ...savedClusterConfig,
           token: '',
@@ -966,6 +940,45 @@
                         <>
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                              已接入集群
+                            </label>
+                            <div className="flex flex-col gap-3 md:flex-row">
+                              <select
+                                value={selectedClusterConfigId || '__new__'}
+                                onChange={(e) => {
+                                  if (e.target.value === '__new__') {
+                                    handleCreateClusterConfig();
+                                    return;
+                                  }
+                                  handleClusterConfigSelection(e.target.value);
+                                }}
+                                className={`flex-1 pl-3 pr-10 py-2 text-base border rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                                  theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'
+                                }`}
+                              >
+                                <option value="__new__">新建集群配置</option>
+                                {clusters.map((cluster) => (
+                                  <option key={cluster.id} value={cluster.id}>
+                                    {cluster.name}{cluster.isDefault ? '（默认）' : ''}{cluster.isEnabled ? '' : '（已停用）'}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={handleCreateClusterConfig}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                                  theme === 'dark'
+                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-100'
+                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                                }`}
+                              >
+                                新建集群
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                               集群名称
                             </label>
                             <input
@@ -1082,6 +1095,20 @@
 
                           <div>
                             <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                              设为默认集群
+                            </label>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" checked={clusterConfig.isDefault} onChange={(e) => updateClusterConfig({ isDefault: e.target.checked })} className="sr-only peer" />
+                              <div className={`w-9 h-5 rounded-full peer ${theme === 'dark' ? 'bg-gray-700 peer-checked:bg-blue-600' : 'bg-gray-200 peer-checked:bg-blue-500'} peer-focus:outline-none`}></div>
+                              <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
+                            </label>
+                            <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                              默认集群会作为未指定 clusterId 时的后端数据来源。
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                               跳过 TLS 校验
                             </label>
                             <label className="relative inline-flex items-center cursor-pointer">
@@ -1095,7 +1122,7 @@
                           </div>
 
                           <div className={`p-3 rounded-lg border text-sm ${theme === 'dark' ? 'border-gray-700 bg-gray-800/60 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                            默认集群会作为当前后端的数据来源。保存后可点击“测试连接”立即验证。
+                            资源页现在支持按集群切换显示；这里保存的是集群接入配置。保存后可点击“测试连接”立即验证。
                           </div>
                         </>
                       )}

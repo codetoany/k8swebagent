@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"k8s-agent-backend/internal/store"
 )
 
 const (
@@ -22,7 +24,7 @@ func (h *handler) respondWithCachedPayload(
 	ttl time.Duration,
 	load func(context.Context) (json.RawMessage, error),
 ) error {
-	payload, err := h.cachedPayload(r.Context(), cacheFragment, ttl, load)
+	payload, err := h.cachedPayload(r.Context(), requestedClusterID(r), cacheFragment, ttl, load)
 	if err != nil {
 		return err
 	}
@@ -33,11 +35,12 @@ func (h *handler) respondWithCachedPayload(
 
 func (h *handler) cachedPayload(
 	ctx context.Context,
+	clusterID string,
 	cacheFragment string,
 	ttl time.Duration,
 	load func(context.Context) (json.RawMessage, error),
 ) (json.RawMessage, error) {
-	cacheKey, ok, err := h.readonlyCacheKey(ctx, cacheFragment)
+	cacheKey, ok, err := h.readonlyCacheKey(ctx, clusterID, cacheFragment)
 	if err != nil {
 		return nil, err
 	}
@@ -61,17 +64,31 @@ func (h *handler) cachedPayload(
 	return payload, nil
 }
 
-func (h *handler) readonlyCacheKey(ctx context.Context, cacheFragment string) (string, bool, error) {
+func (h *handler) readonlyCacheKey(ctx context.Context, clusterID string, cacheFragment string) (string, bool, error) {
 	if h.redisCache == nil {
 		return "", false, nil
 	}
 
-	cluster, err := h.clusterStore.GetDefault(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	if cluster == nil {
-		return fmt.Sprintf("readonly:snapshot:%s", cacheFragment), true, nil
+	var (
+		cluster *store.Cluster
+		err     error
+	)
+	if clusterID != "" {
+		cluster, err = h.clusterStore.GetByID(ctx, clusterID)
+		if err != nil {
+			return "", false, err
+		}
+		if cluster == nil {
+			return fmt.Sprintf("readonly:missing:%s:%s", clusterID, cacheFragment), true, nil
+		}
+	} else {
+		cluster, err = h.clusterStore.GetDefault(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		if cluster == nil {
+			return fmt.Sprintf("readonly:snapshot:%s", cacheFragment), true, nil
+		}
 	}
 	if !cluster.IsEnabled {
 		return fmt.Sprintf("readonly:disabled:%s:%s", cluster.ID, cacheFragment), true, nil

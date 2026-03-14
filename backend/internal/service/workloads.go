@@ -49,8 +49,8 @@ func NewWorkloadsService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Man
 	}
 }
 
-func (s *WorkloadsService) ListPayload(ctx context.Context, scope string) (json.RawMessage, error) {
-	items, err := s.list(ctx, scope)
+func (s *WorkloadsService) ListPayload(ctx context.Context, clusterID string, scope string) (json.RawMessage, error) {
+	items, err := s.list(ctx, clusterID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +58,8 @@ func (s *WorkloadsService) ListPayload(ctx context.Context, scope string) (json.
 	return json.Marshal(items)
 }
 
-func (s *WorkloadsService) DetailPayload(ctx context.Context, scope string, namespace string, name string) (json.RawMessage, error) {
-	listPayload, err := s.ListPayload(ctx, scope)
+func (s *WorkloadsService) DetailPayload(ctx context.Context, clusterID string, scope string, namespace string, name string) (json.RawMessage, error) {
+	listPayload, err := s.ListPayload(ctx, clusterID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +72,13 @@ func (s *WorkloadsService) DetailPayload(ctx context.Context, scope string, name
 	return item, nil
 }
 
-func (s *WorkloadsService) list(ctx context.Context, scope string) ([]WorkloadItem, error) {
-	items, _, err := s.listWithSource(ctx, scope)
+func (s *WorkloadsService) list(ctx context.Context, clusterID string, scope string) ([]WorkloadItem, error) {
+	items, _, err := s.listWithSource(ctx, clusterID, scope)
 	return items, err
 }
 
-func (s *WorkloadsService) listWithSource(ctx context.Context, scope string) ([]WorkloadItem, string, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *WorkloadsService) listWithSource(ctx context.Context, clusterID string, scope string) ([]WorkloadItem, string, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		items, err := s.snapshotWorkloads(ctx, scope)

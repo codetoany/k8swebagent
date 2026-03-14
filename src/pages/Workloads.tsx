@@ -9,132 +9,43 @@ import { motion } from 'framer-motion';
     BarChart
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
+import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '@/lib/apiClient';
 import { namespacesAPI, workloadsAPI } from '@/lib/api';
+import ClusterSelector from '@/components/ClusterSelector';
+import TablePagination from '@/components/TablePagination';
 
-// 模拟工作负载数据
-const workloadsData = [
-  {
-    id: 'web-app-deployment',
-    name: 'web-app',
-    type: 'deployment',
-    namespace: 'default',
-    ready: 3,
-    desired: 3,
-    available: 3,
-    upToDate: 3,
-    age: '5d',
-    images: ['nginx:1.23'],
-    labels: {
-      'app': 'web-app',
-      'version': 'v1'
-    }
-  },
-  {
-    id: 'api-server-deployment',
-    name: 'api-server',
-    type: 'deployment',
-    namespace: 'default',
-    ready: 2,
-    desired: 2,
-    available: 2,
-    upToDate: 2,
-    age: '3d',
-    images: ['my-api:v2.1.0'],
-    labels: {
-      'app': 'api-server',
-      'environment': 'production'
-    }
-  },
-  {
-    id: 'database-statefulset',
-    name: 'database',
-    type: 'statefulset',
-    namespace: 'default',
-    ready: 1,
-    desired: 1,
-    available: 1,
-    upToDate: 1,
-    age: '7d',
-    images: ['postgres:14'],
-    labels: {
-      'app': 'database',
-      'db': 'postgres'
-    }
-  },
-  {
-    id: 'worker-daemonset',
-    name: 'worker',
-    type: 'daemonset',
-    namespace: 'default',
-    ready: 6,
-    desired: 6,
-    available: 5,
-    upToDate: 5,
-    age: '2d',
-    images: ['worker:v1.3.0'],
-    labels: {
-      'app': 'worker',
-      'queue': 'tasks'
-    }
-  },
-  {
-    id: 'monitoring-deployment',
-    name: 'monitoring',
-    type: 'deployment',
-    namespace: 'kube-system',
-    ready: 1,
-    desired: 1,
-    available: 1,
-    upToDate: 1,
-    age: '10d',
-    images: ['prometheus:latest', 'grafana:latest'],
-    labels: {
-      'app': 'monitoring',
-      'component': 'metrics'
-    }
-  },
-  {
-    id: 'cron-job',
-    name: 'daily-backup',
-    type: 'cronjob',
-    namespace: 'default',
-    ready: 0,
-    desired: 0,
-    available: 0,
-    upToDate: 0,
-    age: '14d',
-    images: ['backup-tool:v2.0.0'],
-    lastSchedule: '24h ago',
-    labels: {
-      'app': 'backup',
-      'schedule': 'daily'
-    }
-  }
-];
+const workloadsData: any[] = [];
 
 // 工作负载类型
 const workloadTypes = ['全部', 'deployment', 'statefulset', 'daemonset', 'cronjob'];
 
-// 命名空间数据
-const namespaces = ['全部', 'default', 'kube-system', 'dev', 'prod', 'kube-public'];
+const namespaces = ['全部'];
 
 const Workloads = () => {
   const { theme, toggleTheme } = useThemeContext();
+  const {
+    enabledClusters,
+    loading: clustersLoading,
+    selectedCluster,
+    setSelectedClusterId,
+  } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [workloads, setWorkloads] = useState(workloadsData);
+  const [workloads, setWorkloads] = useState<any[]>([]);
   const [namespaceOptions, setNamespaceOptions] = useState(namespaces);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedWorkload, setSelectedWorkload] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [selectedNamespace, setSelectedNamespace] = useState('全部');
   const [selectedWorkloadType, setSelectedWorkloadType] = useState('全部');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let active = true;
@@ -143,11 +54,26 @@ const Workloads = () => {
       setLoading(true);
       try {
         const [deployments, statefulsets, daemonsets, cronjobs, namespaceList] = await Promise.all([
-          apiClient.get<any[]>(workloadsAPI.listDeployments),
-          apiClient.get<any[]>(workloadsAPI.listStatefulSets),
-          apiClient.get<any[]>(workloadsAPI.listDaemonSets),
-          apiClient.get<any[]>(workloadsAPI.listCronJobs),
-          apiClient.get<Array<{ name: string }>>(namespacesAPI.listNamespaces),
+          apiClient.get<any[]>(
+            workloadsAPI.listDeployments,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<any[]>(
+            workloadsAPI.listStatefulSets,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<any[]>(
+            workloadsAPI.listDaemonSets,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<any[]>(
+            workloadsAPI.listCronJobs,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
+          apiClient.get<Array<{ name: string }>>(
+            namespacesAPI.listNamespaces,
+            selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+          ),
         ]);
 
         if (!active) {
@@ -168,13 +94,14 @@ const Workloads = () => {
           })),
         ];
 
-        if (merged.length > 0) {
-          setWorkloads(merged);
-        }
+        setWorkloads(merged);
+        setSelectedWorkload(null);
 
-        if (Array.isArray(namespaceList) && namespaceList.length > 0) {
-          setNamespaceOptions(['全部', ...namespaceList.map((namespace) => namespace.name)]);
-        }
+        const nextNamespaces = Array.isArray(namespaceList)
+          ? ['全部', ...namespaceList.map((namespace) => namespace.name)]
+          : ['全部'];
+        setNamespaceOptions(nextNamespaces);
+        setSelectedNamespace((current) => (nextNamespaces.includes(current) ? current : '全部'));
       } finally {
         if (active) {
           setLoading(false);
@@ -187,7 +114,11 @@ const Workloads = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [selectedCluster?.id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedNamespace, selectedWorkloadType, sortConfig, pageSize, selectedCluster?.id]);
 
   // 处理登出
   const handleLogout = () => {
@@ -226,6 +157,7 @@ const Workloads = () => {
       }
       return 0;
     });
+  const paginatedWorkloads = filteredAndSortedWorkloads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // 处理排序
   const handleSort = (key: string) => {
@@ -418,30 +350,30 @@ const Workloads = () => {
             <div className={`p-4 rounded-lg border ${theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'}`}>
               <h4 className={`text-sm font-medium mb-3 flex items-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                 <BarChart size={16} className="mr-1" />
-                资源使用概览
+                工作负载概览
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                 <div className="space-y-1">
                   <div className={`h-16 flex items-center justify-center ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg`}>
                     <div>
-                      <p className="text-2xl font-bold">234m</p>
-                      <p className="text-xs opacity-70">CPU 使用率</p>
+                      <p className="text-2xl font-bold">{selectedWorkload.ready}</p>
+                      <p className="text-xs opacity-70">就绪副本</p>
                     </div>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className={`h-16 flex items-center justify-center ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg`}>
                     <div>
-                      <p className="text-2xl font-bold">1.2Gi</p>
-                      <p className="text-xs opacity-70">内存使用</p>
+                      <p className="text-2xl font-bold">{selectedWorkload.available}</p>
+                      <p className="text-xs opacity-70">可用副本</p>
                     </div>
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className={`h-16 flex items-center justify-center ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg`}>
                     <div>
-                      <p className="text-2xl font-bold">3</p>
-                      <p className="text-xs opacity-70">运行中 Pods</p>
+                      <p className="text-2xl font-bold">{selectedWorkload.images.length}</p>
+                      <p className="text-xs opacity-70">镜像数量</p>
                     </div>
                   </div>
                 </div>
@@ -606,10 +538,18 @@ const Workloads = () => {
                 <div>
                   <h2 className="text-xl font-bold mb-1">工作负载</h2>
                   <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                    管理和监控 Kubernetes 集群中的所有工作负载
+                    管理和监控 {selectedCluster?.name || '当前'} Kubernetes 集群中的所有工作负载
                   </p>
                 </div>
-                <div className="flex items-center space-x-3 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <ClusterSelector
+                    theme={theme}
+                    clusters={enabledClusters}
+                    value={selectedCluster?.id || ''}
+                    loading={clustersLoading}
+                    onChange={setSelectedClusterId}
+                    className="w-full md:w-56"
+                  />
                   <div className={`relative flex-1 md:flex-none md:w-64 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg overflow-hidden`}>
                     <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`} />
                     <input
@@ -672,33 +612,33 @@ const Workloads = () => {
                 variants={itemVariants}
                 className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"
               >
-                <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
-                  <div className="flex items-center justify-between">
-                    <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Deployments</h3>
-                    <Layers className="text-blue-500" size={20} />
-                  </div>
-                  <p className="text-2xl font-bold mt-2">3</p>
+                  <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Deployments</h3>
+                      <Layers className="text-blue-500" size={20} />
+                    </div>
+                  <p className="text-2xl font-bold mt-2">{workloads.filter((item) => item.type === 'deployment').length}</p>
                 </div>
                 <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
                   <div className="flex items-center justify-between">
                     <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>StatefulSets</h3>
                     <GitBranch className="text-purple-500" size={20} />
                   </div>
-                  <p className="text-2xl font-bold mt-2">1</p>
+                  <p className="text-2xl font-bold mt-2">{workloads.filter((item) => item.type === 'statefulset').length}</p>
                 </div>
                 <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
                   <div className="flex items-center justify-between">
                     <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>DaemonSets</h3>
                     <Repeat className="text-green-500" size={20} />
                   </div>
-                  <p className="text-2xl font-bold mt-2">1</p>
+                  <p className="text-2xl font-bold mt-2">{workloads.filter((item) => item.type === 'daemonset').length}</p>
                 </div>
                 <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-100'} shadow-sm`}>
                   <div className="flex items-center justify-between">
                     <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>CronJobs</h3>
                     <CircleSlash className="text-orange-500" size={20} />
                   </div>
-                  <p className="text-2xl font-bold mt-2">1</p>
+                  <p className="text-2xl font-bold mt-2">{workloads.filter((item) => item.type === 'cronjob').length}</p>
                 </div>
               </motion.div>
 
@@ -750,7 +690,7 @@ const Workloads = () => {
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                      {filteredAndSortedWorkloads.map((workload) => (
+                      {paginatedWorkloads.map((workload) => (
                         <tr 
                           key={workload.id}
                           className={`${theme === 'dark' ? 'hover:bg-gray-750' : 'hover:bg-gray-50'} cursor-pointer transition-colors`}
@@ -831,6 +771,20 @@ const Workloads = () => {
                     <Package size={48} className={`mx-auto mb-4 opacity-20 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
                     <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>没有找到匹配的工作负载</p>
                   </div>
+                )}
+
+                {filteredAndSortedWorkloads.length > 0 && (
+                  <TablePagination
+                    theme={theme}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={filteredAndSortedWorkloads.length}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setCurrentPage(1);
+                    }}
+                  />
                 )}
               </motion.div>
               

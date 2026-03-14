@@ -8,6 +8,7 @@ import Settings from "@/pages/Settings";
 import AIDiagnosis from "@/pages/AIDiagnosis";
 import { useState } from "react";
 import { AuthContext } from '@/contexts/authContext';
+import { ClusterProvider } from '@/contexts/clusterContext';
 import { ThemeProvider } from '@/contexts/themeContext';
 import { Toaster } from 'sonner';
 
@@ -32,16 +33,18 @@ export default function App() {
       value={{ isAuthenticated, setIsAuthenticated, logout, login }}
     >
       <ThemeProvider>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/nodes" element={<Nodes />} />
-          <Route path="/pods" element={<Pods />} />
-          <Route path="/workloads" element={<Workloads />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/ai-diagnosis" element={<AIDiagnosis />} />
-        </Routes>
-        <Toaster position="top-right" />
+        <ClusterProvider>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/nodes" element={<Nodes />} />
+            <Route path="/pods" element={<Pods />} />
+            <Route path="/workloads" element={<Workloads />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/ai-diagnosis" element={<AIDiagnosis />} />
+          </Routes>
+          <Toaster position="top-right" />
+        </ClusterProvider>
       </ThemeProvider>
     </AuthContext.Provider>
   );

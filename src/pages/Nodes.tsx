@@ -8,183 +8,36 @@ import { motion } from 'framer-motion';
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
+import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import apiClient from '@/lib/apiClient';
 import { nodesAPI } from '@/lib/api';
+import ClusterSelector from '@/components/ClusterSelector';
+import TablePagination from '@/components/TablePagination';
 
-// 模拟节点数据
-const nodesData = [
-  {
-    id: 'node-1',
-    name: 'node-1',
-    status: 'online',
-    cpuUsage: 65,
-    memoryUsage: 78,
-    pods: 12,
-    ip: '192.168.1.101',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-1',
-      'node-role.kubernetes.io/worker': ''
-    }
-  },
-  {
-    id: 'node-2',
-    name: 'node-2',
-    status: 'online',
-    cpuUsage: 45,
-    memoryUsage: 62,
-    pods: 10,
-    ip: '192.168.1.102',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-2',
-      'node-role.kubernetes.io/worker': ''
-    }
-  },
-  {
-    id: 'node-3',
-    name: 'node-3',
-    status: 'offline',
-    cpuUsage: 0,
-    memoryUsage: 0,
-    pods: 8,
-    ip: '192.168.1.103',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-3',
-      'node-role.kubernetes.io/worker': ''
-    }
-  },
-  {
-    id: 'node-4',
-    name: 'node-4',
-    status: 'online',
-    cpuUsage: 30,
-    memoryUsage: 45,
-    pods: 7,
-    ip: '192.168.1.104',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-4',
-      'node-role.kubernetes.io/worker': ''
-    }
-  },
-  {
-    id: 'node-5',
-    name: 'node-5',
-    status: 'online',
-    cpuUsage: 55,
-    memoryUsage: 68,
-    pods: 9,
-    ip: '192.168.1.105',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-5',
-      'node-role.kubernetes.io/worker': ''
-    }
-  },
-  {
-    id: 'node-6',
-    name: 'node-6',
-    status: 'online',
-    cpuUsage: 25,
-    memoryUsage: 35,
-    pods: 6,
-    ip: '192.168.1.106',
-    os: 'Ubuntu 22.04',
-    kernelVersion: '5.15.0-86-generic',
-    kubeletVersion: 'v1.28.0',
-    capacity: {
-      cpu: '8',
-      memory: '32Gi',
-      pods: '110'
-    },
-    allocatable: {
-      cpu: '7.9',
-      memory: '31Gi',
-      pods: '110'
-    },
-    labels: {
-      'kubernetes.io/hostname': 'node-6',
-      'node-role.kubernetes.io/worker': ''
-    }
-  }
-];
+const nodesData: any[] = [];
 
 const Nodes = () => {
   const { theme, toggleTheme } = useThemeContext();
+  const {
+    enabledClusters,
+    loading: clustersLoading,
+    selectedCluster,
+    setSelectedClusterId,
+  } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [nodes, setNodes] = useState(nodesData);
+  const [nodes, setNodes] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let active = true;
@@ -192,9 +45,13 @@ const Nodes = () => {
     const loadNodes = async () => {
       setLoading(true);
       try {
-        const data = await apiClient.get<any[]>(nodesAPI.listNodes);
-        if (active && Array.isArray(data) && data.length > 0) {
+        const data = await apiClient.get<any[]>(
+          nodesAPI.listNodes,
+          selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined,
+        );
+        if (active && Array.isArray(data)) {
           setNodes(data);
+          setSelectedNode(null);
         }
       } finally {
         if (active) {
@@ -208,7 +65,11 @@ const Nodes = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [selectedCluster?.id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, sortConfig, pageSize, selectedCluster?.id]);
 
   // 处理登出
   const handleLogout = () => {
@@ -241,6 +102,7 @@ const Nodes = () => {
       }
       return 0;
     });
+  const paginatedNodes = filteredAndSortedNodes.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // 处理排序
   const handleSort = (key: string) => {
@@ -653,10 +515,18 @@ const Nodes = () => {
                 <div>
                   <h2 className="text-xl font-bold mb-1">集群节点</h2>
                   <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                    管理和监控 Kubernetes 集群中的所有节点
+                    管理和监控 {selectedCluster?.name || '当前'} Kubernetes 集群中的所有节点
                   </p>
                 </div>
-                <div className="flex items-center space-x-3 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <ClusterSelector
+                    theme={theme}
+                    clusters={enabledClusters}
+                    value={selectedCluster?.id || ''}
+                    loading={clustersLoading}
+                    onChange={setSelectedClusterId}
+                    className="w-full md:w-56"
+                  />
                   <div className={`relative flex-1 md:flex-none md:w-64 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg overflow-hidden`}>
                     <Search className={`absolute left-3 top-1/2 transform -translate-y-1/2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`} />
                     <input
@@ -753,7 +623,7 @@ const Nodes = () => {
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                      {filteredAndSortedNodes.map((node) => (
+                      {paginatedNodes.map((node) => (
                         <tr 
                           key={node.id}
                           className={`${theme === 'dark' ? 'hover:bg-gray-750' : 'hover:bg-gray-50'} cursor-pointer transition-colors`}
@@ -822,6 +692,20 @@ const Nodes = () => {
                     <Server size={48} className={`mx-auto mb-4 opacity-20 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
                     <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>没有找到匹配的节点</p>
                   </div>
+                )}
+
+                {filteredAndSortedNodes.length > 0 && (
+                  <TablePagination
+                    theme={theme}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={filteredAndSortedNodes.length}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setCurrentPage(1);
+                    }}
+                  />
                 )}
               </motion.div>
               

@@ -17,6 +17,7 @@ import (
 
 var (
 	ErrClusterNotConfigured = errors.New("default cluster not configured")
+	ErrClusterNotFound      = errors.New("cluster not found")
 	ErrClusterDisabled      = errors.New("cluster is disabled")
 )
 
@@ -47,40 +48,68 @@ func NewManager(clusterStore *store.ClusterStore, requestTimeout time.Duration) 
 }
 
 func (m *Manager) CheckDefaultCluster(ctx context.Context) (ConnectionResult, error) {
-	cluster, err := m.clusterStore.GetDefault(ctx)
+	cluster, err := m.resolveCluster(ctx, "")
 	if err != nil {
+		if errors.Is(err, ErrClusterNotConfigured) {
+			return ConnectionResult{
+				Status:    store.ConnectionStatusNotConfigured,
+				Message:   "No default cluster configured",
+				CheckedAt: time.Now(),
+			}, nil
+		}
 		return ConnectionResult{
 			Status:    store.ConnectionStatusError,
 			Message:   err.Error(),
 			CheckedAt: time.Now(),
 		}, err
 	}
-	if cluster == nil {
-		return ConnectionResult{
-			Status:    store.ConnectionStatusNotConfigured,
-			Message:   "No default cluster configured",
-			CheckedAt: time.Now(),
-		}, nil
+
+	return m.CheckCluster(ctx, *cluster)
+}
+
+func (m *Manager) CheckClusterSelection(ctx context.Context, clusterID string) (ConnectionResult, error) {
+	cluster, err := m.resolveCluster(ctx, clusterID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrClusterNotConfigured):
+			return ConnectionResult{
+				Status:    store.ConnectionStatusNotConfigured,
+				Message:   "No default cluster configured",
+				CheckedAt: time.Now(),
+			}, nil
+		case errors.Is(err, ErrClusterNotFound):
+			return ConnectionResult{
+				Status:    store.ConnectionStatusNotConfigured,
+				Message:   "Cluster not found",
+				CheckedAt: time.Now(),
+			}, nil
+		default:
+			return ConnectionResult{
+				Status:    store.ConnectionStatusError,
+				Message:   err.Error(),
+				CheckedAt: time.Now(),
+			}, err
+		}
 	}
 
 	return m.CheckCluster(ctx, *cluster)
 }
 
 func (m *Manager) CheckClusterByID(ctx context.Context, id string) (ConnectionResult, *store.Cluster, error) {
-	cluster, err := m.clusterStore.GetByID(ctx, id)
+	cluster, err := m.resolveCluster(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrClusterNotFound) {
+			return ConnectionResult{
+				Status:    store.ConnectionStatusNotConfigured,
+				Message:   "Cluster not found",
+				CheckedAt: time.Now(),
+			}, nil, nil
+		}
 		return ConnectionResult{
 			Status:    store.ConnectionStatusError,
 			Message:   err.Error(),
 			CheckedAt: time.Now(),
 		}, nil, err
-	}
-	if cluster == nil {
-		return ConnectionResult{
-			Status:    store.ConnectionStatusNotConfigured,
-			Message:   "Cluster not found",
-			CheckedAt: time.Now(),
-		}, nil, nil
 	}
 
 	result, err := m.CheckCluster(ctx, *cluster)
@@ -123,12 +152,13 @@ func (m *Manager) CheckCluster(ctx context.Context, cluster store.Cluster) (Conn
 }
 
 func (m *Manager) DefaultClient(ctx context.Context) (*store.Cluster, *kubernetes.Clientset, error) {
-	cluster, err := m.clusterStore.GetDefault(ctx)
+	return m.Client(ctx, "")
+}
+
+func (m *Manager) Client(ctx context.Context, clusterID string) (*store.Cluster, *kubernetes.Clientset, error) {
+	cluster, err := m.resolveCluster(ctx, clusterID)
 	if err != nil {
 		return nil, nil, err
-	}
-	if cluster == nil {
-		return nil, nil, ErrClusterNotConfigured
 	}
 	if !cluster.IsEnabled {
 		return cluster, nil, ErrClusterDisabled
@@ -140,6 +170,30 @@ func (m *Manager) DefaultClient(ctx context.Context) (*store.Cluster, *kubernete
 	}
 
 	return cluster, clientset, nil
+}
+
+func (m *Manager) resolveCluster(ctx context.Context, clusterID string) (*store.Cluster, error) {
+	if strings.TrimSpace(clusterID) != "" {
+		cluster, err := m.clusterStore.GetByID(ctx, clusterID)
+		if err != nil {
+			return nil, err
+		}
+		if cluster == nil {
+			return nil, ErrClusterNotFound
+		}
+
+		return cluster, nil
+	}
+
+	cluster, err := m.clusterStore.GetDefault(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if cluster == nil {
+		return nil, ErrClusterNotConfigured
+	}
+
+	return cluster, nil
 }
 
 func (m *Manager) clientForCluster(cluster store.Cluster) (*kubernetes.Clientset, error) {

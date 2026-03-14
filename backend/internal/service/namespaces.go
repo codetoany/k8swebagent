@@ -36,8 +36,8 @@ func NewNamespacesService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Ma
 	}
 }
 
-func (s *NamespacesService) ListPayload(ctx context.Context) (json.RawMessage, error) {
-	items, err := s.list(ctx)
+func (s *NamespacesService) ListPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	items, err := s.list(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +45,8 @@ func (s *NamespacesService) ListPayload(ctx context.Context) (json.RawMessage, e
 	return json.Marshal(items)
 }
 
-func (s *NamespacesService) DetailPayload(ctx context.Context, name string) (json.RawMessage, error) {
-	payload, err := s.ListPayload(ctx)
+func (s *NamespacesService) DetailPayload(ctx context.Context, clusterID string, name string) (json.RawMessage, error) {
+	payload, err := s.ListPayload(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +71,8 @@ func (s *NamespacesService) DetailPayload(ctx context.Context, name string) (jso
 	return nil, ErrNamespaceNotFound
 }
 
-func (s *NamespacesService) list(ctx context.Context) ([]NamespaceItem, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *NamespacesService) list(ctx context.Context, clusterID string) ([]NamespaceItem, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		return s.snapshotNamespaces(ctx)

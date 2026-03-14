@@ -66,8 +66,8 @@ func NewPodsService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Manager)
 	}
 }
 
-func (s *PodsService) ListPayload(ctx context.Context) (json.RawMessage, error) {
-	pods, err := s.list(ctx)
+func (s *PodsService) ListPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	pods, err := s.list(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +75,8 @@ func (s *PodsService) ListPayload(ctx context.Context) (json.RawMessage, error) 
 	return json.Marshal(pods)
 }
 
-func (s *PodsService) MetricsPayload(ctx context.Context, namespace string, name string) (json.RawMessage, error) {
-	pods, source, err := s.listWithSource(ctx)
+func (s *PodsService) MetricsPayload(ctx context.Context, clusterID string, namespace string, name string) (json.RawMessage, error) {
+	pods, source, err := s.listWithSource(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,8 +101,8 @@ func (s *PodsService) MetricsPayload(ctx context.Context, namespace string, name
 	return nil, ErrPodNotFound
 }
 
-func (s *PodsService) LogsPayload(ctx context.Context, namespace string, name string) (json.RawMessage, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *PodsService) LogsPayload(ctx context.Context, clusterID string, namespace string, name string) (json.RawMessage, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		return s.snapshotLogsPayload(ctx, namespace, name)
@@ -149,13 +149,13 @@ func (s *PodsService) LogsPayload(ctx context.Context, namespace string, name st
 	return json.Marshal(entries)
 }
 
-func (s *PodsService) list(ctx context.Context) ([]PodListItem, error) {
-	pods, _, err := s.listWithSource(ctx)
+func (s *PodsService) list(ctx context.Context, clusterID string) ([]PodListItem, error) {
+	pods, _, err := s.listWithSource(ctx, clusterID)
 	return pods, err
 }
 
-func (s *PodsService) listWithSource(ctx context.Context) ([]PodListItem, string, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *PodsService) listWithSource(ctx context.Context, clusterID string) ([]PodListItem, string, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		pods, err := s.snapshotPods(ctx)

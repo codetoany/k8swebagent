@@ -77,8 +77,8 @@ func NewDashboardService(snapshotStore *store.SnapshotStore, k8sManager *k8s.Man
 	}
 }
 
-func (s *DashboardService) OverviewPayload(ctx context.Context) (json.RawMessage, error) {
-	useSnapshot, err := s.useSnapshot(ctx)
+func (s *DashboardService) OverviewPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (s *DashboardService) OverviewPayload(ctx context.Context) (json.RawMessage
 		return s.snapshotPayload(ctx, "overview")
 	}
 
-	overview, err := s.buildOverview(ctx)
+	overview, err := s.buildOverview(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +94,8 @@ func (s *DashboardService) OverviewPayload(ctx context.Context) (json.RawMessage
 	return json.Marshal(overview)
 }
 
-func (s *DashboardService) ResourceUsagePayload(ctx context.Context) (json.RawMessage, error) {
-	useSnapshot, err := s.useSnapshot(ctx)
+func (s *DashboardService) ResourceUsagePayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (s *DashboardService) ResourceUsagePayload(ctx context.Context) (json.RawMe
 		return s.snapshotPayload(ctx, "resource-usage")
 	}
 
-	overview, err := s.buildOverview(ctx)
+	overview, err := s.buildOverview(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +112,8 @@ func (s *DashboardService) ResourceUsagePayload(ctx context.Context) (json.RawMe
 	return json.Marshal(points)
 }
 
-func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context) (json.RawMessage, error) {
-	useSnapshot, err := s.useSnapshot(ctx)
+func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context) (js
 		return s.snapshotPayload(ctx, "namespace-distribution")
 	}
 
-	items, err := s.buildNamespaceDistribution(ctx)
+	items, err := s.buildNamespaceDistribution(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +129,8 @@ func (s *DashboardService) NamespaceDistributionPayload(ctx context.Context) (js
 	return json.Marshal(items)
 }
 
-func (s *DashboardService) RecentEventsPayload(ctx context.Context) (json.RawMessage, error) {
-	useSnapshot, err := s.useSnapshot(ctx)
+func (s *DashboardService) RecentEventsPayload(ctx context.Context, clusterID string) (json.RawMessage, error) {
+	useSnapshot, err := s.useSnapshot(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *DashboardService) RecentEventsPayload(ctx context.Context) (json.RawMes
 		return s.snapshotPayload(ctx, "recent-events")
 	}
 
-	items, err := s.buildRecentEvents(ctx)
+	items, err := s.buildRecentEvents(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +146,8 @@ func (s *DashboardService) RecentEventsPayload(ctx context.Context) (json.RawMes
 	return json.Marshal(items)
 }
 
-func (s *DashboardService) useSnapshot(ctx context.Context) (bool, error) {
-	_, _, err := s.k8sManager.DefaultClient(ctx)
+func (s *DashboardService) useSnapshot(ctx context.Context, clusterID string) (bool, error) {
+	_, _, err := s.k8sManager.Client(ctx, clusterID)
 	switch {
 	case errors.Is(err, k8s.ErrClusterNotConfigured), errors.Is(err, k8s.ErrClusterDisabled):
 		return true, nil
@@ -170,19 +170,19 @@ func (s *DashboardService) snapshotPayload(ctx context.Context, key string) (jso
 	return payload, nil
 }
 
-func (s *DashboardService) buildOverview(ctx context.Context) (DashboardOverview, error) {
-	nodes, err := s.nodesService.list(ctx)
+func (s *DashboardService) buildOverview(ctx context.Context, clusterID string) (DashboardOverview, error) {
+	nodes, err := s.nodesService.list(ctx, clusterID)
 	if err != nil {
 		return DashboardOverview{}, err
 	}
-	pods, err := s.podsService.list(ctx)
+	pods, err := s.podsService.list(ctx, clusterID)
 	if err != nil {
 		return DashboardOverview{}, err
 	}
 
 	totalWorkloads := 0
 	for _, scope := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
-		items, err := s.workloadsService.list(ctx, scope)
+		items, err := s.workloadsService.list(ctx, clusterID, scope)
 		if err != nil {
 			return DashboardOverview{}, err
 		}
@@ -256,12 +256,12 @@ func buildResourceUsagePoints(overview DashboardOverview) []ResourceUsagePoint {
 	return points
 }
 
-func (s *DashboardService) buildNamespaceDistribution(ctx context.Context) ([]NamespaceDistributionItem, error) {
-	namespaces, err := s.namespacesService.list(ctx)
+func (s *DashboardService) buildNamespaceDistribution(ctx context.Context, clusterID string) ([]NamespaceDistributionItem, error) {
+	namespaces, err := s.namespacesService.list(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
-	pods, err := s.podsService.list(ctx)
+	pods, err := s.podsService.list(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (s *DashboardService) buildNamespaceDistribution(ctx context.Context) ([]Na
 	}
 
 	for _, scope := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
-		items, err := s.workloadsService.list(ctx, scope)
+		items, err := s.workloadsService.list(ctx, clusterID, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -315,8 +315,8 @@ func (s *DashboardService) buildNamespaceDistribution(ctx context.Context) ([]Na
 	return distribution, nil
 }
 
-func (s *DashboardService) buildRecentEvents(ctx context.Context) ([]DashboardEvent, error) {
-	_, clientset, err := s.k8sManager.DefaultClient(ctx)
+func (s *DashboardService) buildRecentEvents(ctx context.Context, clusterID string) ([]DashboardEvent, error) {
+	_, clientset, err := s.k8sManager.Client(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}

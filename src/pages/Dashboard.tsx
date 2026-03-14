@@ -26,8 +26,9 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resourceUsageLoading, setResourceUsageLoading] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>('today');
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [resourceRefreshVersion, setResourceRefreshVersion] = useState(0);
   const [overview, setOverview] = useState<Overview>(EMPTY_OVERVIEW);
   const [resourceUsageData, setResourceUsageData] = useState<ResourceUsagePoint[]>([]);
   const [namespaceChartData, setNamespaceChartData] = useState<NamespaceDistribution[]>([]);
@@ -43,21 +44,16 @@ const Dashboard = () => {
 
   useEffect(() => {
     let active = true;
-    const requestParams = selectedCluster?.id
-      ? { clusterId: selectedCluster.id, range: timeRange }
-      : { range: timeRange };
     const loadDashboard = async () => {
       setLoading(true);
       try {
-        const [overviewData, resourceUsage, namespaceDistribution, recentEventsData] = await Promise.all([
+        const [overviewData, namespaceDistribution, recentEventsData] = await Promise.all([
           apiClient.get<Partial<Overview>>(dashboardAPI.getClusterOverview, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
-          apiClient.get<ResourceUsagePoint[]>(dashboardAPI.getResourceUsage, requestParams),
           apiClient.get<NamespaceDistribution[]>(dashboardAPI.getNamespaceDistribution, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
           apiClient.get<DashboardEvent[]>(dashboardAPI.getRecentEvents, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
         ]);
         if (!active) return;
         setOverview({ ...EMPTY_OVERVIEW, ...overviewData });
-        setResourceUsageData(Array.isArray(resourceUsage) ? resourceUsage : []);
         setNamespaceChartData(Array.isArray(namespaceDistribution) ? namespaceDistribution : []);
         setRecentEvents(Array.isArray(recentEventsData) ? recentEventsData : []);
       } finally {
@@ -66,7 +62,28 @@ const Dashboard = () => {
     };
     void loadDashboard();
     return () => { active = false; };
-  }, [selectedCluster?.id, timeRange, refreshVersion]);
+  }, [selectedCluster?.id]);
+
+  useEffect(() => {
+    let active = true;
+    const requestParams = selectedCluster?.id
+      ? { clusterId: selectedCluster.id, range: timeRange }
+      : { range: timeRange };
+
+    const loadResourceUsage = async () => {
+      setResourceUsageLoading(true);
+      try {
+        const resourceUsage = await apiClient.get<ResourceUsagePoint[]>(dashboardAPI.getResourceUsage, requestParams);
+        if (!active) return;
+        setResourceUsageData(Array.isArray(resourceUsage) ? resourceUsage : []);
+      } finally {
+        if (active) setResourceUsageLoading(false);
+      }
+    };
+
+    void loadResourceUsage();
+    return () => { active = false; };
+  }, [selectedCluster?.id, timeRange, resourceRefreshVersion]);
 
   const formatAbsoluteTime = (timestamp: string) => {
     const parsed = new Date(timestamp);
@@ -216,24 +233,34 @@ const Dashboard = () => {
                     <div className="flex items-center space-x-2">
                       {[{ key: 'today' as const, label: '今日' }, { key: 'week' as const, label: '本周' }, { key: 'month' as const, label: '本月' }].map((option) => {
                         const active = timeRange === option.key;
-                        return <button key={option.key} type="button" onClick={() => setTimeRange(option.key)} className={`text-xs px-3 py-1 rounded-full transition-colors ${active ? (theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : `${theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-100'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}`}>{option.label}</button>;
+                        return <button key={option.key} type="button" onClick={() => setTimeRange(option.key)} className={`text-xs px-3 py-1 rounded-full transition-colors ${active ? (theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : `${theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-100'} border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}`} disabled={resourceUsageLoading && active}>{option.label}</button>;
                       })}
-                      <button type="button" onClick={() => setRefreshVersion((current) => current + 1)} className={`p-1 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`} aria-label="刷新资源图表"><RefreshCw size={16} /></button>
+                      <button type="button" onClick={() => setResourceRefreshVersion((current) => current + 1)} className={`p-1 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`} aria-label="刷新资源图表" disabled={resourceUsageLoading}><RefreshCw size={16} className={resourceUsageLoading ? 'animate-spin' : ''} /></button>
                     </div>
                   </div>
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={displayResourceUsage} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                        <defs><linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient><linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} /><stop offset="95%" stopColor="#ef4444" stopOpacity={0} /></linearGradient></defs>
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${value}%`} />
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#374151' : '#e5e7eb'} />
-                        <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff', borderColor: theme === 'dark' ? '#374151' : '#e5e7eb', borderRadius: '0.5rem', color: theme === 'dark' ? '#ffffff' : '#000000' }} formatter={(value) => [`${value}%`, '']} />
-                        <Legend wrapperStyle={{ paddingTop: 10 }} />
-                        <Area type="monotone" dataKey="cpuUsage" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCpu)" name="CPU 使用率" />
-                        <Area type="monotone" dataKey="memoryUsage" stroke="#ef4444" fillOpacity={1} fill="url(#colorMemory)" name="内存使用率" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                  <div className="relative h-72">
+                    {resourceUsageLoading && !loading && (
+                      <div className={`absolute inset-0 z-10 flex items-center justify-center rounded-lg ${theme === 'dark' ? 'bg-gray-800/80' : 'bg-white/80'} backdrop-blur-[1px]`}>
+                        <div className={`flex items-center space-x-2 text-sm ${theme === 'dark' ? 'text-gray-200' : 'text-gray-600'}`}>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>正在刷新图表...</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className={`h-full transition-opacity duration-200 ${resourceUsageLoading && !loading ? 'opacity-40' : 'opacity-100'}`}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={displayResourceUsage} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                          <defs><linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient><linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} /><stop offset="95%" stopColor="#ef4444" stopOpacity={0} /></linearGradient></defs>
+                          <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${value}%`} />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#374151' : '#e5e7eb'} />
+                          <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#1f2937' : '#ffffff', borderColor: theme === 'dark' ? '#374151' : '#e5e7eb', borderRadius: '0.5rem', color: theme === 'dark' ? '#ffffff' : '#000000' }} formatter={(value) => [`${value}%`, '']} />
+                          <Legend wrapperStyle={{ paddingTop: 10 }} />
+                          <Area type="monotone" dataKey="cpuUsage" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCpu)" name="CPU 使用率" />
+                          <Area type="monotone" dataKey="memoryUsage" stroke="#ef4444" fillOpacity={1} fill="url(#colorMemory)" name="内存使用率" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
 

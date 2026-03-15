@@ -11,7 +11,7 @@ import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
@@ -72,6 +72,7 @@ const Nodes = () => {
   } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [nodes, setNodes] = useState<any[]>([]);
@@ -116,6 +117,22 @@ const Nodes = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, sortConfig, pageSize, selectedCluster?.id]);
+
+  useEffect(() => {
+    const targetName = searchParams.get('name')?.trim();
+    if (!targetName || nodes.length === 0) {
+      return;
+    }
+
+    const targetNode = nodes.find((node) => node.name === targetName);
+    if (!targetNode) {
+      return;
+    }
+
+    setSearchTerm(targetName);
+    setSelectedNode(targetNode);
+    setCurrentPage(1);
+  }, [nodes, searchParams]);
 
   // 处理登出
   const handleLogout = () => {

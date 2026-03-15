@@ -35,7 +35,7 @@ import { useThemeContext } from "@/contexts/themeContext";
 import { useClusterContext } from "@/contexts/clusterContext";
 import { useContext } from "react";
 import { AuthContext } from "@/contexts/authContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import apiClient from "@/lib/apiClient";
 import { namespacesAPI, replacePathParams, workloadsAPI } from "@/lib/api";
@@ -103,6 +103,7 @@ const Workloads = () => {
   } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [workloads, setWorkloads] = useState<any[]>([]);
@@ -240,6 +241,31 @@ const Workloads = () => {
     pageSize,
     selectedCluster?.id,
   ]);
+
+  useEffect(() => {
+    const targetType = searchParams.get('type')?.trim();
+    const targetNamespace = searchParams.get('namespace')?.trim();
+    const targetName = searchParams.get('name')?.trim();
+    if (!targetType || !targetNamespace || !targetName || workloads.length === 0) {
+      return;
+    }
+
+    const targetWorkload = workloads.find(
+      (workload) =>
+        workload.type === targetType &&
+        workload.namespace === targetNamespace &&
+        workload.name === targetName,
+    );
+    if (!targetWorkload) {
+      return;
+    }
+
+    setSelectedWorkloadType(targetType);
+    setSelectedNamespace(targetNamespace);
+    setSearchTerm(targetName);
+    setSelectedWorkload(targetWorkload);
+    setCurrentPage(1);
+  }, [searchParams, workloads]);
 
   useEffect(() => {
     setScaleEditorOpen(false);

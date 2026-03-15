@@ -15,7 +15,7 @@ export class ApiError extends Error {
   }
 }
 
-function buildUrl(endpoint: string, params?: Record<string, string | number | boolean>): string {
+export function buildApiUrl(endpoint: string, params?: Record<string, string | number | boolean>): string {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const url = new URL(`${API_BASE_URL}${normalizedEndpoint}`, window.location.origin);
 
@@ -69,7 +69,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
           : undefined,
     };
 
-    const response = await fetch(buildUrl(endpoint, options.params), requestConfig);
+    const response = await fetch(buildApiUrl(endpoint, options.params), requestConfig);
     return handleResponse<T>(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Network request failed';

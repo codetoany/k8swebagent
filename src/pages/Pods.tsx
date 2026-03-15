@@ -12,7 +12,7 @@ import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
 import { useContext } from 'react';
 import { AuthContext } from '@/contexts/authContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
 import { namespacesAPI, podsAPI, replacePathParams } from '@/lib/api';
@@ -33,6 +33,7 @@ const Pods = () => {
   } = useClusterContext();
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pods, setPods] = useState<any[]>([]);
@@ -99,6 +100,24 @@ const Pods = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, selectedNamespace, sortConfig, pageSize, selectedCluster?.id]);
+
+  useEffect(() => {
+    const targetNamespace = searchParams.get('namespace')?.trim();
+    const targetName = searchParams.get('name')?.trim();
+    if (!targetNamespace || !targetName || pods.length === 0) {
+      return;
+    }
+
+    const targetPod = pods.find((pod) => pod.namespace === targetNamespace && pod.name === targetName);
+    if (!targetPod) {
+      return;
+    }
+
+    setSelectedNamespace(targetNamespace);
+    setSearchTerm(targetName);
+    setSelectedPod(targetPod);
+    setCurrentPage(1);
+  }, [pods, searchParams]);
 
   useEffect(() => {
     let active = true;

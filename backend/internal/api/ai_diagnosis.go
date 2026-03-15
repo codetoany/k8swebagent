@@ -20,31 +20,64 @@ type aiDiagnosisChatRequest struct {
 	ConversationID string `json:"conversationId"`
 	Message        string `json:"message"`
 	ClusterID      string `json:"clusterId"`
+	TemplateID     string `json:"templateId,omitempty"`
+}
+
+type aiDiagnosisPreparedInput struct {
+	Payload              aiDiagnosisChatRequest
+	Model                aiModelPayload
+	Template             *aiDiagnosisTemplatePayload
+	ExistingConversation *store.AIConversation
+	Bundle               aiDiagnosisBundle
+}
+
+type aiDiagnosisExecutionResult struct {
+	Conversation aiDiagnosisConversationResponse `json:"conversation"`
+	Cluster      aiDiagnosisClusterStatus        `json:"cluster"`
+	Report       *aiDiagnosisReport              `json:"report,omitempty"`
 }
 
 type aiDiagnosisConversationResponse struct {
-	ID          string                        `json:"id"`
-	Title       string                        `json:"title"`
-	Summary     string                        `json:"summary"`
-	ClusterID   string                        `json:"clusterId,omitempty"`
-	ClusterName string                        `json:"clusterName,omitempty"`
-	ModelID     string                        `json:"modelId,omitempty"`
-	ModelName   string                        `json:"modelName,omitempty"`
-	CreatedAt   time.Time                     `json:"createdAt"`
-	UpdatedAt   time.Time                     `json:"updatedAt"`
-	Messages    []aiDiagnosisMessageResponse  `json:"messages,omitempty"`
+	ID          string                       `json:"id"`
+	Title       string                       `json:"title"`
+	Summary     string                       `json:"summary"`
+	ClusterID   string                       `json:"clusterId,omitempty"`
+	ClusterName string                       `json:"clusterName,omitempty"`
+	ModelID     string                       `json:"modelId,omitempty"`
+	ModelName   string                       `json:"modelName,omitempty"`
+	CreatedAt   time.Time                    `json:"createdAt"`
+	UpdatedAt   time.Time                    `json:"updatedAt"`
+	Messages    []aiDiagnosisMessageResponse `json:"messages,omitempty"`
 }
 
 type aiDiagnosisMessageResponse struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string                      `json:"id"`
+	Role      string                      `json:"role"`
+	Content   string                      `json:"content"`
+	Metadata  *aiDiagnosisMessageMetadata `json:"metadata,omitempty"`
+	CreatedAt time.Time                   `json:"createdAt"`
+}
+
+type aiDiagnosisMessageMetadata struct {
+	TemplateID string             `json:"templateId,omitempty"`
+	Report     *aiDiagnosisReport `json:"report,omitempty"`
 }
 
 type aiDiagnosisChatResponse struct {
 	Conversation aiDiagnosisConversationResponse `json:"conversation"`
 	Cluster      aiDiagnosisClusterStatus        `json:"cluster"`
+	Report       *aiDiagnosisReport              `json:"report,omitempty"`
+}
+
+type aiDiagnosisBundle struct {
+	Status       aiDiagnosisClusterStatus
+	Nodes        []service.NodeListItem
+	Pods         []service.PodListItem
+	Deployments  []service.WorkloadItem
+	StatefulSets []service.WorkloadItem
+	DaemonSets   []service.WorkloadItem
+	CronJobs     []service.WorkloadItem
+	RecentEvents []service.DashboardEvent
 }
 
 type aiDiagnosisClusterStatus struct {
@@ -140,6 +173,11 @@ func (h *handler) deleteAIDiagnosisConversation(w http.ResponseWriter, r *http.R
 	return nil
 }
 
+func (h *handler) listAIDiagnosisTemplates(w http.ResponseWriter, r *http.Request) error {
+	writeJSON(w, http.StatusOK, aiDiagnosisTemplates())
+	return nil
+}
+
 func (h *handler) aiDiagnosisNodeStatus(w http.ResponseWriter, r *http.Request) error {
 	status, err := h.buildAIDiagnosisClusterStatus(r.Context(), requestedClusterID(r))
 	if err != nil {
@@ -156,62 +194,265 @@ func (h *handler) aiDiagnosisChat(w http.ResponseWriter, r *http.Request) error 
 		return newHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	payload.Message = strings.TrimSpace(payload.Message)
-	if payload.Message == "" {
-		return newHTTPError(http.StatusBadRequest, "message is required")
-	}
-
-	model, err := h.defaultAIDiagnosisModel(r.Context())
-	if err != nil {
-		return newHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	clusterID := strings.TrimSpace(payload.ClusterID)
-	conversationID := strings.TrimSpace(payload.ConversationID)
-	var existingConversation *store.AIConversation
-	if conversationID != "" && h.aiHistoryStore != nil {
-		existingConversation, err = h.aiHistoryStore.Get(r.Context(), conversationID)
-		if errors.Is(err, store.ErrAIConversationNotFound) {
-			return newHTTPError(http.StatusNotFound, "会话不存在")
-		}
-		if err != nil {
-			return err
-		}
-
-		if clusterID == "" {
-			clusterID = existingConversation.ClusterID
-		} else if existingConversation.ClusterID != "" && existingConversation.ClusterID != clusterID {
-			return newHTTPError(http.StatusBadRequest, "所选会话与当前分析集群不一致，请新建会话后重试")
-		}
-	}
-
-	clusterStatus, err := h.buildAIDiagnosisClusterStatus(r.Context(), clusterID)
+	prepared, err := h.prepareAIDiagnosisRequest(r.Context(), payload)
 	if err != nil {
 		return err
 	}
 
+	result, err := h.executeAIDiagnosis(r.Context(), prepared, nil)
+	if err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusOK, aiDiagnosisChatResponse{
+		Conversation: result.Conversation,
+		Cluster:      result.Cluster,
+		Report:       result.Report,
+	})
+	return nil
+}
+
+func (h *handler) aiDiagnosisChatStream(w http.ResponseWriter, r *http.Request) error {
+	var payload aiDiagnosisChatRequest
+	if err := decodeJSON(r, &payload); err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	prepared, err := h.prepareAIDiagnosisRequest(r.Context(), payload)
+	if err != nil {
+		return err
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return newHTTPError(http.StatusInternalServerError, "当前服务不支持流式输出")
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	_ = writeSSEEvent(w, "context", map[string]any{
+		"cluster":  prepared.Bundle.Status,
+		"template": prepared.Template,
+	})
+	flusher.Flush()
+
+	result, err := h.executeAIDiagnosis(r.Context(), prepared, func(delta string) error {
+		if strings.TrimSpace(delta) == "" {
+			return nil
+		}
+		if err := writeSSEEvent(w, "delta", map[string]string{"content": delta}); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	})
+	if err != nil {
+		_ = writeSSEEvent(w, "error", map[string]string{"message": err.Error()})
+		flusher.Flush()
+		return nil
+	}
+
+	_ = writeSSEEvent(w, "done", aiDiagnosisChatResponse{
+		Conversation: result.Conversation,
+		Cluster:      result.Cluster,
+		Report:       result.Report,
+	})
+	flusher.Flush()
+	return nil
+}
+
+func (h *handler) prepareAIDiagnosisRequest(
+	ctx context.Context,
+	payload aiDiagnosisChatRequest,
+) (aiDiagnosisPreparedInput, error) {
+	payload.Message = strings.TrimSpace(payload.Message)
+	payload.TemplateID = strings.TrimSpace(payload.TemplateID)
+	payload.ClusterID = strings.TrimSpace(payload.ClusterID)
+	payload.ConversationID = strings.TrimSpace(payload.ConversationID)
+
+	var template *aiDiagnosisTemplatePayload
+	if payload.TemplateID != "" {
+		nextTemplate, ok := aiDiagnosisTemplateByID(payload.TemplateID)
+		if !ok {
+			return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusBadRequest, "诊断模板不存在")
+		}
+		template = &nextTemplate
+		if payload.Message == "" {
+			payload.Message = nextTemplate.Prompt
+		}
+	}
+
+	if payload.Message == "" {
+		return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusBadRequest, "message is required")
+	}
+
+	model, err := h.defaultAIDiagnosisModel(ctx)
+	if err != nil {
+		return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	var existingConversation *store.AIConversation
+	if payload.ConversationID != "" && h.aiHistoryStore != nil {
+		existingConversation, err = h.aiHistoryStore.Get(ctx, payload.ConversationID)
+		if errors.Is(err, store.ErrAIConversationNotFound) {
+			return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusNotFound, "会话不存在")
+		}
+		if err != nil {
+			return aiDiagnosisPreparedInput{}, err
+		}
+
+		if payload.ClusterID == "" {
+			payload.ClusterID = existingConversation.ClusterID
+		} else if existingConversation.ClusterID != "" && existingConversation.ClusterID != payload.ClusterID {
+			return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusBadRequest, "所选会话与当前分析集群不一致，请新建会话后重试")
+		}
+	}
+
+	bundle, err := h.buildAIDiagnosisBundle(ctx, payload.ClusterID)
+	if err != nil {
+		return aiDiagnosisPreparedInput{}, err
+	}
+
+	if payload.ClusterID == "" {
+		payload.ClusterID = bundle.Status.ClusterID
+	}
+
+	return aiDiagnosisPreparedInput{
+		Payload:              payload,
+		Model:                model,
+		Template:             template,
+		ExistingConversation: existingConversation,
+		Bundle:               bundle,
+	}, nil
+}
+
+func (h *handler) executeAIDiagnosis(
+	ctx context.Context,
+	prepared aiDiagnosisPreparedInput,
+	onDelta func(string) error,
+) (aiDiagnosisExecutionResult, error) {
+	report := h.buildAIDiagnosisReport(ctx, prepared.Bundle, prepared.Payload.Message, prepared.Template)
+
+	messages, err := h.buildAIDiagnosisLLMMessages(prepared, report)
+	if err != nil {
+		return aiDiagnosisExecutionResult{}, err
+	}
+
+	chatCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	var answer string
+	if onDelta != nil {
+		answer, err = h.llmClient.streamChatCompletion(chatCtx, prepared.Model, messages, onDelta)
+	} else {
+		answer, err = h.llmClient.chatCompletion(chatCtx, prepared.Model, messages)
+	}
+	if err != nil {
+		return aiDiagnosisExecutionResult{}, newHTTPError(http.StatusBadGateway, fmt.Sprintf("调用 AI 服务失败: %s", err.Error()))
+	}
+
+	report.Summary = coalesceString(report.Summary, truncateText(answer, 120))
+	assistantMetadata := aiDiagnosisMessageMetadata{
+		TemplateID: prepared.Payload.TemplateID,
+		Report:     &report,
+	}
+	userMetadata := aiDiagnosisMessageMetadata{
+		TemplateID: prepared.Payload.TemplateID,
+	}
+
+	if h.aiHistoryStore == nil {
+		now := time.Now()
+		conversation := buildLocalAIDiagnosisConversation(prepared, answer, report, userMetadata, assistantMetadata, now)
+		return aiDiagnosisExecutionResult{
+			Conversation: conversation,
+			Cluster:      prepared.Bundle.Status,
+			Report:       &report,
+		}, nil
+	}
+
+	userMetadataJSON, err := json.Marshal(userMetadata)
+	if err != nil {
+		return aiDiagnosisExecutionResult{}, err
+	}
+	assistantMetadataJSON, err := json.Marshal(assistantMetadata)
+	if err != nil {
+		return aiDiagnosisExecutionResult{}, err
+	}
+
+	savedConversation, err := h.aiHistoryStore.SaveExchange(ctx, store.SaveAIConversationInput{
+		ConversationID:    prepared.Payload.ConversationID,
+		Title:             buildAIDiagnosisConversationTitle(prepared.Payload.Message, prepared.Template),
+		Summary:           report.Summary,
+		ClusterID:         prepared.Bundle.Status.ClusterID,
+		ClusterName:       prepared.Bundle.Status.ClusterName,
+		ModelID:           prepared.Model.ID,
+		ModelName:         prepared.Model.Name,
+		UserMessage:       prepared.Payload.Message,
+		AssistantMessage:  answer,
+		UserMetadata:      userMetadataJSON,
+		AssistantMetadata: assistantMetadataJSON,
+	})
+	if err != nil {
+		return aiDiagnosisExecutionResult{}, err
+	}
+
+	return aiDiagnosisExecutionResult{
+		Conversation: toAIDiagnosisConversationResponse(*savedConversation),
+		Cluster:      prepared.Bundle.Status,
+		Report:       findLatestAssistantReport(savedConversation.Messages),
+	}, nil
+}
+
+func (h *handler) buildAIDiagnosisLLMMessages(
+	prepared aiDiagnosisPreparedInput,
+	report aiDiagnosisReport,
+) ([]llmChatMessage, error) {
 	messages := []llmChatMessage{
 		{
 			Role: "system",
 			Content: strings.TrimSpace(`你是 K8s Agent 的 Kubernetes 智能诊断助手。
 请始终使用中文回答，语气专业、直接、可执行。
-你只能依据提供的集群上下文和用户问题作答；如果上下文不足，要明确说明缺失信息，不要编造不存在的 Pod、节点、日志或指标。
-如果用户请求执行集群操作，你只能给出建议步骤和风险提示，不能声称已经替用户执行。
-回答尽量结构化，优先给出结论、风险点和下一步建议。`),
+你只能依据提供的集群上下文、诊断报告骨架和用户问题作答，不能编造不存在的节点、Pod、事件、日志或指标。
+如果证据不足，请明确说明“当前证据不足，需要补充信息”。
+如果涉及集群操作，只能给出建议步骤、风险和验证方法，不能声称已经替用户执行。
+请按以下结构输出：
+1. 结论
+2. 关键证据
+3. 优先处理建议
+4. 下一步检查`),
 		},
 	}
 
-	clusterContextJSON, err := json.MarshalIndent(clusterStatus, "", "  ")
-	if err != nil {
-		return err
+	if prepared.Template != nil {
+		templateJSON, err := json.MarshalIndent(prepared.Template, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, llmChatMessage{
+			Role:    "system",
+			Content: "当前诊断模板如下，请优先结合模板目标进行判断：\n" + string(templateJSON),
+		})
 	}
+
+	contextJSON, err := json.MarshalIndent(map[string]any{
+		"cluster": prepared.Bundle.Status,
+		"report":  report,
+	}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+
 	messages = append(messages, llmChatMessage{
 		Role:    "system",
-		Content: "当前诊断上下文如下，请结合这些信息回答：\n" + string(clusterContextJSON),
+		Content: "当前诊断上下文如下，只能基于这些内容输出结论：\n" + string(contextJSON),
 	})
 
-	if existingConversation != nil {
-		for _, message := range existingConversation.Messages {
+	if prepared.ExistingConversation != nil {
+		for _, message := range prepared.ExistingConversation.Messages {
 			role := strings.TrimSpace(message.Role)
 			if role != "user" && role != "assistant" {
 				continue
@@ -229,70 +470,10 @@ func (h *handler) aiDiagnosisChat(w http.ResponseWriter, r *http.Request) error 
 
 	messages = append(messages, llmChatMessage{
 		Role:    "user",
-		Content: payload.Message,
+		Content: prepared.Payload.Message,
 	})
 
-	chatCtx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
-
-	answer, err := h.llmClient.chatCompletion(chatCtx, model, messages)
-	if err != nil {
-		return newHTTPError(http.StatusBadGateway, fmt.Sprintf("调用 AI 服务失败: %s", err.Error()))
-	}
-
-	if h.aiHistoryStore == nil {
-		response := aiDiagnosisConversationResponse{
-			ID:          "",
-			Title:       truncateText(payload.Message, 36),
-			Summary:     truncateText(answer, 120),
-			ClusterID:   clusterStatus.ClusterID,
-			ClusterName: clusterStatus.ClusterName,
-			ModelID:     model.ID,
-			ModelName:   model.Name,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
-			Messages: []aiDiagnosisMessageResponse{
-				{
-					ID:        "local-user",
-					Role:      "user",
-					Content:   payload.Message,
-					CreatedAt: time.Now(),
-				},
-				{
-					ID:        "local-assistant",
-					Role:      "assistant",
-					Content:   answer,
-					CreatedAt: time.Now(),
-				},
-			},
-		}
-		writeJSON(w, http.StatusOK, aiDiagnosisChatResponse{
-			Conversation: response,
-			Cluster:      clusterStatus,
-		})
-		return nil
-	}
-
-	savedConversation, err := h.aiHistoryStore.SaveExchange(r.Context(), store.SaveAIConversationInput{
-		ConversationID:   conversationID,
-		Title:            truncateText(payload.Message, 36),
-		Summary:          truncateText(answer, 120),
-		ClusterID:        clusterStatus.ClusterID,
-		ClusterName:      clusterStatus.ClusterName,
-		ModelID:          model.ID,
-		ModelName:        model.Name,
-		UserMessage:      payload.Message,
-		AssistantMessage: answer,
-	})
-	if err != nil {
-		return err
-	}
-
-	writeJSON(w, http.StatusOK, aiDiagnosisChatResponse{
-		Conversation: toAIDiagnosisConversationResponse(*savedConversation),
-		Cluster:      clusterStatus,
-	})
-	return nil
+	return messages, nil
 }
 
 func (h *handler) defaultAIDiagnosisModel(ctx context.Context) (aiModelPayload, error) {
@@ -321,7 +502,6 @@ func (h *handler) defaultAIDiagnosisModel(ctx context.Context) (aiModelPayload, 
 	if strings.TrimSpace(selected.ID) == "" {
 		return aiModelPayload{}, fmt.Errorf("默认 AI 模型缺少模型标识")
 	}
-
 	if strings.TrimSpace(selected.Name) == "" {
 		selected.Name = selected.ID
 	}
@@ -329,38 +509,38 @@ func (h *handler) defaultAIDiagnosisModel(ctx context.Context) (aiModelPayload, 
 	return selected, nil
 }
 
-func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID string) (aiDiagnosisClusterStatus, error) {
+func (h *handler) buildAIDiagnosisBundle(ctx context.Context, clusterID string) (aiDiagnosisBundle, error) {
 	overviewPayload, err := h.dashboardService.OverviewPayload(ctx, clusterID)
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	nodesPayload, err := h.nodesService.ListPayload(ctx, clusterID)
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	podsPayload, err := h.podsService.ListPayload(ctx, clusterID)
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	deploymentsPayload, err := h.workloadsService.ListPayload(ctx, clusterID, "deployments")
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	statefulSetsPayload, err := h.workloadsService.ListPayload(ctx, clusterID, "statefulsets")
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	daemonSetsPayload, err := h.workloadsService.ListPayload(ctx, clusterID, "daemonsets")
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	cronJobsPayload, err := h.workloadsService.ListPayload(ctx, clusterID, "cronjobs")
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	recentEventsPayload, err := h.dashboardService.RecentEventsPayload(ctx, clusterID)
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 
 	var overview service.DashboardOverview
@@ -373,33 +553,33 @@ func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID s
 	var recentEvents []service.DashboardEvent
 
 	if err := json.Unmarshal(overviewPayload, &overview); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(nodesPayload, &nodes); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(podsPayload, &pods); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(deploymentsPayload, &deployments); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(statefulSetsPayload, &statefulSets); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(daemonSetsPayload, &daemonSets); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(cronJobsPayload, &cronJobs); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 	if err := json.Unmarshal(recentEventsPayload, &recentEvents); err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 
 	connectionResult, err := h.k8sManager.CheckClusterSelection(ctx, clusterID)
 	if err != nil {
-		return aiDiagnosisClusterStatus{}, err
+		return aiDiagnosisBundle{}, err
 	}
 
 	clusterName := strings.TrimSpace(connectionResult.ClusterName)
@@ -438,9 +618,6 @@ func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID s
 		}
 		return nodeHighlights[i].MemoryUsage > nodeHighlights[j].MemoryUsage
 	})
-	if len(nodeHighlights) > 5 {
-		nodeHighlights = nodeHighlights[:5]
-	}
 
 	problemPods := make([]aiDiagnosisPodSummary, 0)
 	for _, pod := range pods {
@@ -456,17 +633,16 @@ func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID s
 		})
 	}
 	sort.Slice(problemPods, func(i, j int) bool {
-		if podSeverity(problemPods[i].Status) != podSeverity(problemPods[j].Status) {
-			return podSeverity(problemPods[i].Status) > podSeverity(problemPods[j].Status)
+		leftSeverity := podSeverity(problemPods[i].Status)
+		rightSeverity := podSeverity(problemPods[j].Status)
+		if leftSeverity != rightSeverity {
+			return leftSeverity > rightSeverity
 		}
 		if problemPods[i].Namespace != problemPods[j].Namespace {
 			return problemPods[i].Namespace < problemPods[j].Namespace
 		}
 		return problemPods[i].Name < problemPods[j].Name
 	})
-	if len(problemPods) > 8 {
-		problemPods = problemPods[:8]
-	}
 
 	workloadAlerts := buildAIDiagnosisWorkloadAlerts(deployments, "deployments")
 	workloadAlerts = append(workloadAlerts, buildAIDiagnosisWorkloadAlerts(statefulSets, "statefulsets")...)
@@ -483,31 +659,58 @@ func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID s
 		}
 		return workloadAlerts[i].Name < workloadAlerts[j].Name
 	})
-	if len(workloadAlerts) > 8 {
-		workloadAlerts = workloadAlerts[:8]
-	}
-
-	if len(recentEvents) > 6 {
-		recentEvents = recentEvents[:6]
-	}
 
 	source := "snapshot"
 	if connectionResult.Status == store.ConnectionStatusConnected {
 		source = "live"
 	}
 
-	return aiDiagnosisClusterStatus{
-		ClusterID:       clusterRefID,
-		ClusterName:     clusterName,
-		ConnectionState: connectionResult.Status,
-		Source:          source,
-		Overview:        overview,
-		NodeHighlights:  nodeHighlights,
-		ProblemPods:     problemPods,
-		WorkloadAlerts:  workloadAlerts,
-		RecentEvents:    recentEvents,
-		GeneratedAt:     time.Now(),
+	statusEvents := recentEvents
+	if len(statusEvents) > 6 {
+		statusEvents = statusEvents[:6]
+	}
+	statusNodes := nodeHighlights
+	if len(statusNodes) > 5 {
+		statusNodes = statusNodes[:5]
+	}
+	statusPods := problemPods
+	if len(statusPods) > 8 {
+		statusPods = statusPods[:8]
+	}
+	statusWorkloads := workloadAlerts
+	if len(statusWorkloads) > 8 {
+		statusWorkloads = statusWorkloads[:8]
+	}
+
+	return aiDiagnosisBundle{
+		Status: aiDiagnosisClusterStatus{
+			ClusterID:       clusterRefID,
+			ClusterName:     clusterName,
+			ConnectionState: connectionResult.Status,
+			Source:          source,
+			Overview:        overview,
+			NodeHighlights:  statusNodes,
+			ProblemPods:     statusPods,
+			WorkloadAlerts:  statusWorkloads,
+			RecentEvents:    statusEvents,
+			GeneratedAt:     time.Now(),
+		},
+		Nodes:        nodes,
+		Pods:         pods,
+		Deployments:  deployments,
+		StatefulSets: statefulSets,
+		DaemonSets:   daemonSets,
+		CronJobs:     cronJobs,
+		RecentEvents: recentEvents,
 	}, nil
+}
+
+func (h *handler) buildAIDiagnosisClusterStatus(ctx context.Context, clusterID string) (aiDiagnosisClusterStatus, error) {
+	bundle, err := h.buildAIDiagnosisBundle(ctx, clusterID)
+	if err != nil {
+		return aiDiagnosisClusterStatus{}, err
+	}
+	return bundle.Status, nil
 }
 
 func (h *handler) lookupClusterForAI(ctx context.Context, clusterID string) (*store.Cluster, error) {
@@ -548,7 +751,10 @@ func nodeSeverity(node aiDiagnosisNodeSummary) int {
 	if !node.Schedulable {
 		return 2
 	}
-	if node.CPUUsage >= 80 || node.MemoryUsage >= 80 {
+	if node.CPUUsage >= 90 || node.MemoryUsage >= 90 {
+		return 3
+	}
+	if node.CPUUsage >= 75 || node.MemoryUsage >= 75 {
 		return 2
 	}
 	if node.CPUUsage >= 60 || node.MemoryUsage >= 60 {
@@ -558,13 +764,18 @@ func nodeSeverity(node aiDiagnosisNodeSummary) int {
 }
 
 func podSeverity(status string) int {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "failed":
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch {
+	case strings.Contains(normalized, "crashloopbackoff"),
+		strings.Contains(normalized, "imagepullbackoff"),
+		strings.Contains(normalized, "errimagepull"),
+		strings.Contains(normalized, "failed"):
+		return 4
+	case strings.Contains(normalized, "pending"):
 		return 3
-	case "pending":
+	case strings.Contains(normalized, "terminating"),
+		strings.Contains(normalized, "containercreating"):
 		return 2
-	case "paused":
-		return 1
 	default:
 		return 0
 	}
@@ -575,7 +786,7 @@ func workloadSeverity(item aiDiagnosisWorkloadHint) int {
 		return 3
 	}
 	if item.Ready == 0 && item.Desired > 0 {
-		return 3
+		return 4
 	}
 	if item.Ready != item.Desired || item.Available != item.Desired {
 		return 2
@@ -597,6 +808,17 @@ func truncateText(value string, maxRunes int) string {
 	return strings.TrimSpace(string(runes[:maxRunes])) + "..."
 }
 
+func buildAIDiagnosisConversationTitle(message string, template *aiDiagnosisTemplatePayload) string {
+	message = strings.TrimSpace(message)
+	if template != nil && (message == "" || message == template.Prompt) {
+		return template.Title
+	}
+	if template != nil && message != "" {
+		return truncateText(template.Title+" - "+message, 36)
+	}
+	return truncateText(message, 36)
+}
+
 func toAIDiagnosisConversationResponse(item store.AIConversation) aiDiagnosisConversationResponse {
 	response := aiDiagnosisConversationResponse{
 		ID:          item.ID,
@@ -616,9 +838,98 @@ func toAIDiagnosisConversationResponse(item store.AIConversation) aiDiagnosisCon
 			ID:        message.ID,
 			Role:      message.Role,
 			Content:   message.Content,
+			Metadata:  decodeAIDiagnosisMessageMetadata(message.Metadata),
 			CreatedAt: message.CreatedAt,
 		})
 	}
 
 	return response
+}
+
+func decodeAIDiagnosisMessageMetadata(raw json.RawMessage) *aiDiagnosisMessageMetadata {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "{}" || trimmed == "null" {
+		return nil
+	}
+
+	var metadata aiDiagnosisMessageMetadata
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return nil
+	}
+	if metadata.TemplateID == "" && metadata.Report == nil {
+		return nil
+	}
+	return &metadata
+}
+
+func findLatestAssistantReport(messages []store.AIConversationMsg) *aiDiagnosisReport {
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role != "assistant" {
+			continue
+		}
+		metadata := decodeAIDiagnosisMessageMetadata(messages[index].Metadata)
+		if metadata != nil && metadata.Report != nil {
+			return metadata.Report
+		}
+	}
+	return nil
+}
+
+func buildLocalAIDiagnosisConversation(
+	prepared aiDiagnosisPreparedInput,
+	answer string,
+	report aiDiagnosisReport,
+	userMetadata aiDiagnosisMessageMetadata,
+	assistantMetadata aiDiagnosisMessageMetadata,
+	now time.Time,
+) aiDiagnosisConversationResponse {
+	return aiDiagnosisConversationResponse{
+		ID:          "",
+		Title:       buildAIDiagnosisConversationTitle(prepared.Payload.Message, prepared.Template),
+		Summary:     report.Summary,
+		ClusterID:   prepared.Bundle.Status.ClusterID,
+		ClusterName: prepared.Bundle.Status.ClusterName,
+		ModelID:     prepared.Model.ID,
+		ModelName:   prepared.Model.Name,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Messages: []aiDiagnosisMessageResponse{
+			{
+				ID:        "local-user",
+				Role:      "user",
+				Content:   prepared.Payload.Message,
+				Metadata:  &userMetadata,
+				CreatedAt: now,
+			},
+			{
+				ID:        "local-assistant",
+				Role:      "assistant",
+				Content:   answer,
+				Metadata:  &assistantMetadata,
+				CreatedAt: now,
+			},
+		},
+	}
+}
+
+func writeSSEEvent(w http.ResponseWriter, event string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", body); err != nil {
+		return err
+	}
+	return nil
+}
+
+func coalesceString(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -28,10 +29,11 @@ type AIConversation struct {
 }
 
 type AIConversationMsg struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string          `json:"id"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 type AIConversationStore struct {
@@ -39,15 +41,17 @@ type AIConversationStore struct {
 }
 
 type SaveAIConversationInput struct {
-	ConversationID   string
-	Title            string
-	Summary          string
-	ClusterID        string
-	ClusterName      string
-	ModelID          string
-	ModelName        string
-	UserMessage      string
-	AssistantMessage string
+	ConversationID    string
+	Title             string
+	Summary           string
+	ClusterID         string
+	ClusterName       string
+	ModelID           string
+	ModelName         string
+	UserMessage       string
+	AssistantMessage  string
+	UserMetadata      json.RawMessage
+	AssistantMetadata json.RawMessage
 }
 
 func NewAIConversationStore(pool *pgxpool.Pool) *AIConversationStore {
@@ -78,8 +82,17 @@ func (s *AIConversationStore) Init(ctx context.Context) error {
 			conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
 			role TEXT NOT NULL,
 			content TEXT NOT NULL,
+			metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pool.Exec(ctx, `
+		ALTER TABLE ai_conversation_messages
+		ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 	`)
 	if err != nil {
 		return err
@@ -225,6 +238,7 @@ func (s *AIConversationStore) ListMessages(ctx context.Context, conversationID s
 			id,
 			role,
 			content,
+			metadata,
 			created_at
 		FROM ai_conversation_messages
 		WHERE conversation_id = $1
@@ -237,12 +251,14 @@ func (s *AIConversationStore) ListMessages(ctx context.Context, conversationID s
 				id,
 				role,
 				content,
+				metadata,
 				created_at
 			FROM (
 				SELECT
 					id,
 					role,
 					content,
+					metadata,
 					created_at
 				FROM ai_conversation_messages
 				WHERE conversation_id = $1
@@ -263,7 +279,7 @@ func (s *AIConversationStore) ListMessages(ctx context.Context, conversationID s
 	items := make([]AIConversationMsg, 0)
 	for rows.Next() {
 		var item AIConversationMsg
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.Metadata, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -361,17 +377,22 @@ func (s *AIConversationStore) SaveExchange(ctx context.Context, input SaveAIConv
 		return nil, err
 	}
 
+	userMetadata := normalizeConversationMetadata(input.UserMetadata)
+	assistantMetadata := normalizeConversationMetadata(input.AssistantMetadata)
+
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO ai_conversation_messages (id, conversation_id, role, content)
-		VALUES ($1, $2, $3, $4), ($5, $2, $6, $7)
+		INSERT INTO ai_conversation_messages (id, conversation_id, role, content, metadata)
+		VALUES ($1, $2, $3, $4, $5::jsonb), ($6, $2, $7, $8, $9::jsonb)
 	`,
 		newAIConversationMessageID(),
 		conversationID,
 		"user",
 		strings.TrimSpace(input.UserMessage),
+		userMetadata,
 		newAIConversationMessageID(),
 		"assistant",
 		strings.TrimSpace(input.AssistantMessage),
+		assistantMetadata,
 	); err != nil {
 		return nil, err
 	}
@@ -427,4 +448,12 @@ func truncatePlainText(value string, maxRunes int) string {
 	}
 
 	return strings.TrimSpace(string(runes[:maxRunes])) + "..."
+}
+
+func normalizeConversationMetadata(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return "{}"
+	}
+	return trimmed
 }

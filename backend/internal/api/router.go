@@ -169,10 +169,12 @@ func NewRouter(
 	})
 
 	router.Route("/api/ai-diagnosis", func(r chi.Router) {
+		r.Get("/templates", h.wrap(h.listAIDiagnosisTemplates))
 		r.Get("/history", h.wrap(h.listAIDiagnosisHistory))
 		r.Get("/history/{id}", h.wrap(h.getAIDiagnosisConversation))
 		r.Delete("/history/{id}", h.wrap(h.deleteAIDiagnosisConversation))
 		r.Post("/chat", h.wrap(h.aiDiagnosisChat))
+		r.Post("/chat/stream", h.wrap(h.aiDiagnosisChatStream))
 		r.Get("/node-status", h.wrap(h.aiDiagnosisNodeStatus))
 	})
 

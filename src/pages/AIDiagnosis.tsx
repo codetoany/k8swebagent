@@ -1346,7 +1346,7 @@ export default function AIDiagnosis() {
       )}
 
       <div className="flex h-full min-h-screen">
-        <aside className={`hidden w-72 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+        <aside className={`hidden w-64 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
           <div className={`flex h-20 items-center border-b px-6 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center gap-3">
               <Brain size={22} className="text-blue-500" />
@@ -1486,13 +1486,13 @@ export default function AIDiagnosis() {
               </div>
 
               {loading ? (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
-                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`h-72 animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                  <div className={`h-72 animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 </div>
               ) : activeTab === 'chat' ? (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`flex min-h-0 flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`flex flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className={`shrink-0 border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1512,7 +1512,7 @@ export default function AIDiagnosis() {
                       </div>
                     </div>
 
-                    <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4">
+                    <div ref={messagesContainerRef} className="max-h-[360px] space-y-5 overflow-y-auto overscroll-contain p-4 sm:max-h-[420px]">
                       {messages.map((message) => (
                         <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[92%] ${message.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
@@ -1609,7 +1609,7 @@ export default function AIDiagnosis() {
                     </div>
                   </div>
 
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                  <div className="space-y-4">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex items-center justify-between">
                         <div className="font-semibold">优先关注节点</div>
@@ -1702,8 +1702,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'issues' ? (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.6fr,1fr]">
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                <div className="grid gap-6 p-5 xl:grid-cols-[1.6fr,1fr]">
+                  <div className="space-y-4">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="font-semibold">问题中心</div>
@@ -1836,7 +1836,7 @@ export default function AIDiagnosis() {
                     )}
                   </div>
 
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                  <div className="space-y-4">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="font-semibold">处理建议</div>
                       <div className={`mt-3 space-y-3 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -1848,8 +1848,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'memory' ? (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.5fr,1fr]">
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                <div className="grid gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                  <div className="space-y-4">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="font-semibold">诊断记忆</div>
@@ -1901,7 +1901,7 @@ export default function AIDiagnosis() {
                     )}
                   </div>
 
-                  <div className={`overflow-y-auto rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="font-semibold">记忆如何工作</div>
                     <div className={`mt-4 space-y-3 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                       <p>系统会自动把 AI 对话摘要、人工“有帮助/待改进”反馈、问题恢复复盘沉淀成记忆。</p>
@@ -1911,8 +1911,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'templates' ? (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.5fr,1fr]">
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                <div className="grid gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                  <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">模板中心</div>
                       <button
@@ -1974,7 +1974,7 @@ export default function AIDiagnosis() {
                     )}
                   </div>
 
-                  <div className={`overflow-y-auto rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">{editingTemplateId ? '编辑模板' : '模板说明'}</div>
                       {editingTemplateId && (
@@ -2035,8 +2035,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : (
-                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.3fr,1fr]">
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                <div className="grid gap-6 p-5 xl:grid-cols-[1.3fr,1fr]">
+                  <div className="space-y-4">
                     {conversations.length === 0 ? (
                       <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
                         还没有 AI 诊断历史。发起第一条诊断问题后，会话会自动保存在这里。
@@ -2086,7 +2086,7 @@ export default function AIDiagnosis() {
                     )}
                   </div>
 
-                  <div className={`overflow-y-auto rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">历史说明</div>
                       <History size={16} className="text-blue-500" />

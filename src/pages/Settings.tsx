@@ -41,6 +41,28 @@
     hasApiKey?: boolean;
   }
 
+  interface AuditLogEntry {
+    id: string;
+    action: string;
+    resourceType: string;
+    resourceName: string;
+    namespace?: string;
+    clusterId?: string;
+    clusterName?: string;
+    status: 'success' | 'failed';
+    message: string;
+    actorName: string;
+    actorEmail: string;
+    createdAt: string;
+  }
+
+  interface AuditLogListResponse {
+    items: AuditLogEntry[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }
+
   interface NotificationSettingsResponse {
     level: NotificationOption;
     enabledTypes: NotificationType[];
@@ -70,28 +92,6 @@
       enabledTypes: ['node', 'pod', 'workload'],
     },
   });
-
-  interface AuditLogEntry {
-    id: string;
-    action: string;
-    resourceType: string;
-    resourceName: string;
-    namespace?: string;
-    clusterId?: string;
-    clusterName?: string;
-    status: 'success' | 'failed';
-    message: string;
-    actorName: string;
-    actorEmail: string;
-    createdAt: string;
-  }
-
-  interface AuditLogListResponse {
-    items: AuditLogEntry[];
-    total: number;
-    page: number;
-    pageSize: number;
-  }
 
   type ClusterEditorMode = 'create' | 'edit';
 
@@ -324,14 +324,11 @@
       { value: 'pod.restart', label: '重启 Pod' },
       { value: 'node.cordon', label: '节点禁止调度' },
       { value: 'node.uncordon', label: '节点恢复调度' },
-    ];
-
-    auditActionOptions.push(
       { value: 'workload.pause', label: '暂停工作负载' },
       { value: 'workload.resume', label: '恢复工作负载' },
       { value: 'node.maintenance.enable', label: '开启维护污点' },
       { value: 'node.maintenance.disable', label: '清除维护污点' },
-    );
+    ];
 
     const auditResourceTypeOptions = [
       { value: '', label: '全部资源' },
@@ -1022,6 +1019,7 @@
                  {renderNavItem(<Server size={20} />, '节点', '/nodes')}
                  {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
                  {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+                 {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                  {renderNavItem(<Settings size={20} />, '设置', '/settings', true)}
               </div>
             </motion.div>
@@ -1039,6 +1037,7 @@
             {renderNavItem(<Server size={20} />, '节点', '/nodes')}
             {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
             {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+            {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
             {renderNavItem(<Settings size={20} />, '设置', '/settings', true)}
             {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
           </div>
@@ -1200,21 +1199,6 @@
                       onClick={() => setActiveTab('advanced')}
                     >
                       高级
-                    </button>
-                    <button 
-                      className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
-                        activeTab === 'audit' 
-                          ? theme === 'dark' 
-                            ? 'bg-gray-750 text-white border-b-2 border-blue-500' 
-                            : 'bg-gray-100 text-gray-900 border-b-2 border-blue-500' 
-                          : theme === 'dark' 
-                            ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                      }`}
-                      onClick={() => setActiveTab('audit')}
-                    >
-                      <Shield size={16} className="inline mr-1" />
-                      操作审计
                     </button>
                     <button 
                       className={`px-4 py-2 rounded-t-lg font-medium text-sm transition-colors ${
@@ -2034,6 +2018,32 @@
                             </div>
                           )}
 
+                          {activeTab === 'advanced' && (
+                            <div>
+                              <h3 className={`text-sm font-medium mb-3 flex items-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                <Shield size={16} className="mr-1" />
+                                操作审计
+                              </h3>
+                              <div className={`p-3 rounded-lg border ${theme === 'dark' ? 'border-gray-700 bg-gray-700/60' : 'border-gray-200 bg-white'} text-sm space-y-3`}>
+                                <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                                  操作审计已经独立成左侧模块，可按集群、动作、资源类型筛选查看，不再塞在设置页内部。
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => navigate('/audit-logs')}
+                                  className={`inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium ${
+                                    theme === 'dark'
+                                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                                  }`}
+                                >
+                                  <Shield size={15} className="mr-2" />
+                                  前往操作审计
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           <div>
                             <h3 className={`text-sm font-medium mb-3 flex items-center ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                               <Info size={16} className="mr-1" />
@@ -2114,9 +2124,7 @@
                           }`}>
                             {activeTab === 'advanced'
                               ? '先在左侧卡片中选择集群查看状态。新建或编辑时会弹出配置面板，保存和测试都在面板中完成。'
-                              : activeTab === 'audit'
-                                ? '审计记录已单独拆出模块，支持筛选、分页和按集群过滤查看。'
-                                : '左侧显示的是设置摘要卡片。点击编辑后会弹出独立配置面板，保存时直接调用真实设置接口。'}
+                              : '左侧显示的是设置摘要卡片。点击编辑后会弹出独立配置面板，保存时直接调用真实设置接口。'}
                           </div>
                         ) : (
                           <div className="text-center text-sm opacity-70">

@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertCircle, AlertTriangle, BarChart3, Bell, ChevronDown, Cpu, Database, HardDrive, LogOut, Menu, Moon, Network, RefreshCw, Server, Settings, Sun, User, Wifi, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, BarChart3, Bell, ChevronDown, Cpu, Database, HardDrive, LogOut, Menu, Moon, Network, RefreshCw, Server, Settings, Shield, Sun, User, Wifi, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { useClusterContext } from '@/contexts/clusterContext';
@@ -267,6 +267,7 @@ const Dashboard = () => {
               {navItem(<Server size={20} />, '节点', '/nodes')}
               {navItem(<Database size={20} />, 'Pods', '/pods')}
               {navItem(<Network size={20} />, '工作负载', '/workloads')}
+              {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
               {navItem(<Settings size={20} />, '设置', '/settings')}
               {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
             </div>
@@ -281,6 +282,7 @@ const Dashboard = () => {
           {navItem(<Server size={20} />, '节点', '/nodes')}
           {navItem(<Database size={20} />, 'Pods', '/pods')}
           {navItem(<Network size={20} />, '工作负载', '/workloads')}
+          {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {navItem(<Settings size={20} />, '设置', '/settings')}
           {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
         </div>

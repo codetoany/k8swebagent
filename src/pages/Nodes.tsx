@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
     Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
     RefreshCw, PlusCircle, MoreVertical, Filter, Download,
     AlertCircle, CheckCircle, ArrowUpDown, Eye, User, PauseCircle, PlayCircle,
+    Shield,
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
@@ -621,6 +622,7 @@ const Nodes = () => {
                {renderNavItem(<Server size={20} />, '节点', '/nodes', true)}
                {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
                {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+               {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                {renderNavItem(<Settings size={20} />, '设置', '/settings')}
             </div>
           </motion.div>
@@ -638,6 +640,7 @@ const Nodes = () => {
           {renderNavItem(<Server size={20} />, '节点', '/nodes', true)}
           {renderNavItem(<Database size={20} />, 'Pods', '/pods')}
           {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+          {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
         </div>

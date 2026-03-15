@@ -19,6 +19,7 @@ import {
   Send,
   Server,
   Settings,
+  Shield,
   ShieldAlert,
   Sun,
   Trash2,
@@ -925,6 +926,7 @@ export default function AIDiagnosis() {
               {navItem(<Server />, '节点', '/nodes')}
               {navItem(<Database />, 'Pods', '/pods')}
               {navItem(<Package />, '工作负载', '/workloads')}
+              {navItem(<Shield />, '操作审计', '/audit-logs')}
               {navItem(<Settings />, '设置', '/settings')}
               {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}
             </div>
@@ -946,6 +948,7 @@ export default function AIDiagnosis() {
             {navItem(<Server />, '节点', '/nodes')}
             {navItem(<Database />, 'Pods', '/pods')}
             {navItem(<Package />, '工作负载', '/workloads')}
+            {navItem(<Shield />, '操作审计', '/audit-logs')}
             {navItem(<Settings />, '设置', '/settings')}
             {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}
           </div>

@@ -23,6 +23,7 @@ import {
   CheckCircle,
   ArrowUpDown,
   Eye,
+  Shield,
   Package,
   Layers,
   Repeat,
@@ -1016,6 +1017,7 @@ const Workloads = () => {
                 "/workloads",
                 true,
               )}
+              {renderNavItem(<Shield size={20} />, "操作审计", "/audit-logs")}
               {renderNavItem(<Settings size={20} />, "设置", "/settings")}
             </div>
           </motion.div>
@@ -1035,6 +1037,7 @@ const Workloads = () => {
           {renderNavItem(<Server size={20} />, "节点", "/nodes")}
           {renderNavItem(<Database size={20} />, "Pods", "/pods")}
           {renderNavItem(<Network size={20} />, "工作负载", "/workloads", true)}
+          {renderNavItem(<Shield size={20} />, "操作审计", "/audit-logs")}
           {renderNavItem(<Settings size={20} />, "设置", "/settings")}
           {renderNavItem(<AlertCircle size={20} />, "AI 诊断", "/ai-diagnosis")}
         </div>

@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
     Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
     RefreshCw, PlusCircle, MoreVertical, Filter, Download,
     AlertCircle, CheckCircle, ArrowUpDown, Eye, PauseCircle, 
-    PlayCircle, Trash2, Edit2, Clock, User,
+    PlayCircle, Trash2, Edit2, Clock, User, Shield,
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
@@ -582,6 +582,7 @@ const Pods = () => {
                {renderNavItem(<Server size={20} />, '节点', '/nodes')}
                {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
                {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+               {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                {renderNavItem(<Settings size={20} />, '设置', '/settings')}
             </div>
           </motion.div>
@@ -599,6 +600,7 @@ const Pods = () => {
           {renderNavItem(<Server size={20} />, '节点', '/nodes')}
           {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
           {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+          {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
         </div>

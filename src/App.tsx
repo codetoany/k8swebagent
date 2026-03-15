@@ -6,6 +6,7 @@ import Pods from "@/pages/Pods";
 import Workloads from "@/pages/Workloads";
 import Settings from "@/pages/Settings";
 import AIDiagnosis from "@/pages/AIDiagnosis";
+import AuditLogs from "@/pages/AuditLogs";
 import { useState } from "react";
 import { AuthContext } from '@/contexts/authContext';
 import { ClusterProvider } from '@/contexts/clusterContext';
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/nodes" element={<Nodes />} />
             <Route path="/pods" element={<Pods />} />
             <Route path="/workloads" element={<Workloads />} />
+            <Route path="/audit-logs" element={<AuditLogs />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/ai-diagnosis" element={<AIDiagnosis />} />
           </Routes>

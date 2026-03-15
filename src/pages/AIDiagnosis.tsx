@@ -1410,24 +1410,27 @@ export default function AIDiagnosis() {
           </header>
 
           <div className="p-4 md:p-6">
-            <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h2 className="mb-1 text-xl font-bold">AI 诊断助手</h2>
-                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  结合当前集群上下文、主动巡检与证据链，输出诊断结论、风险判断和下一步建议。
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    集群 {clusterStatus?.clusterName || welcomeClusterName}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
-                  </span>
-                </div>
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  集群 {clusterStatus?.clusterName || welcomeClusterName}
+                </span>
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                </span>
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                </span>
+                {latestInspection && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('issues')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}
+                  >
+                    最近巡检 {getRiskMeta(latestInspection.riskLevel, theme).label}
+                  </button>
+                )}
               </div>
 
               <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto">
@@ -1463,43 +1466,6 @@ export default function AIDiagnosis() {
                 </button>
               </div>
             </div>
-
-            {latestInspection && (
-              <div className={`mb-4 rounded-xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold">最近巡检</span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
-                        {getRiskMeta(latestInspection.riskLevel, theme).label}
-                      </span>
-                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {formatConversationTime(latestInspection.generatedAt)}
-                      </span>
-                    </div>
-                    <p className={`mt-1 truncate text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {latestInspection.issues.slice(0, 2).map((issue) => (
-                      <span
-                        key={issue.id}
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
-                      >
-                        {issue.title}
-                      </span>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('issues')}
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
-                    >
-                      查看问题中心
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>

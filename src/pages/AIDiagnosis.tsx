@@ -1312,8 +1312,8 @@ export default function AIDiagnosis() {
   };
 
   const diagnosisPanelHeightClass = latestInspection
-    ? 'h-[560px] md:h-[600px] max-h-[calc(100vh-14rem)]'
-    : 'h-[600px] md:h-[640px] max-h-[calc(100vh-11rem)]';
+    ? 'h-[340px] md:h-[380px]'
+    : 'h-[380px] md:h-[420px]';
 
   return (
     <div className={`min-h-screen flex transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>

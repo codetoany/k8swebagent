@@ -1397,8 +1397,8 @@ export default function AIDiagnosis() {
                 <h1 className="shrink-0 text-xl font-bold">AI 诊断</h1>
               </div>
 
-              <div className="min-w-0 overflow-x-auto xl:justify-self-stretch">
-                <div className="flex w-max items-center gap-2 pr-2">
+              <div className="min-w-0 overflow-hidden xl:justify-self-stretch">
+                <div className="flex items-center gap-2 whitespace-nowrap">
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     集群 {clusterStatus?.clusterName || welcomeClusterName}
                   </span>
@@ -1409,15 +1409,6 @@ export default function AIDiagnosis() {
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
                   </span>
-                  {latestInspection && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('issues')}
-                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}
-                    >
-                      最近巡检 {getRiskMeta(latestInspection.riskLevel, theme).label}
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -1428,7 +1419,7 @@ export default function AIDiagnosis() {
                   value={selectedClusterId}
                   loading={clusterLoading}
                   onChange={setSelectedClusterId}
-                  className="w-72 shrink-0"
+                  className="w-64 shrink-0"
                 />
                 <button
                   onClick={() => void handleRunInspection()}

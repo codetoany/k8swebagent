@@ -1389,54 +1389,39 @@ export default function AIDiagnosis() {
                 <button onClick={() => setSidebarOpen(true)} className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
                   <Menu size={18} />
                 </button>
-                <div className={`hidden rounded-xl p-2 sm:block ${isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
-                  <Brain size={20} />
-                </div>
-                <div className="min-w-0">
-                  <h1 className="truncate text-xl font-bold sm:text-2xl">AI 诊断助手</h1>
-                </div>
+                <h1 className="truncate text-xl font-bold">AI 诊断</h1>
+                <span className={`hidden rounded-full px-3 py-1 text-xs font-medium md:inline-flex ${connectionMeta.badgeClass}`}>
+                  {connectionMeta.label}
+                </span>
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                <div className="hidden flex-wrap items-center justify-end gap-2 2xl:flex">
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    集群 {clusterStatus?.clusterName || welcomeClusterName}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
-                  </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="w-full sm:w-auto sm:min-w-[220px] xl:min-w-[240px]">
                   <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedClusterId} loading={clusterLoading} onChange={setSelectedClusterId} />
-                  <button
-                    onClick={() => void handleRunInspection()}
-                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    disabled={runningInspection}
-                  >
-                    <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
-                    {runningInspection ? '巡检中...' : '运行巡检'}
-                  </button>
-                  <button
-                    onClick={() => void refreshClusterStatus()}
-                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                  >
-                    <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
-                    刷新诊断上下文
-                  </button>
-                  <button onClick={handleNewConversation} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                    <PlusCircle size={15} />
-                    新建会话
-                  </button>
-                  <button onClick={toggleTheme} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} aria-label="切换主题">
-                    {isDark ? <Sun size={18} /> : <Moon size={18} />}
-                  </button>
-                  <NotificationCenter isDark={isDark} />
                 </div>
+                <button
+                  onClick={() => void handleRunInspection()}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  disabled={runningInspection}
+                >
+                  <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
+                  {runningInspection ? '巡检中...' : '运行巡检'}
+                </button>
+                <button
+                  onClick={() => void refreshClusterStatus()}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
+                  刷新上下文
+                </button>
+                <button onClick={handleNewConversation} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                  <PlusCircle size={15} />
+                  新建会话
+                </button>
+                <button onClick={toggleTheme} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} aria-label="切换主题">
+                  {isDark ? <Sun size={18} /> : <Moon size={18} />}
+                </button>
+                <NotificationCenter isDark={isDark} />
               </div>
             </div>
           </header>

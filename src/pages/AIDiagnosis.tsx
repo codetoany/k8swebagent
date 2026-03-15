@@ -87,14 +87,6 @@ interface AIDiagnosisReport {
   evidence: AIDiagnosisEvidence[];
 }
 
-interface AIDiagnosisTemplate {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  prompt: string;
-}
-
 interface AIMessageMetadata {
   templateId?: string;
   report?: AIDiagnosisReport;
@@ -608,8 +600,6 @@ export default function AIDiagnosis() {
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [messages, setMessages] = useState<AIConversationMessage[]>(createWelcomeMessage('默认诊断上下文'));
   const [clusterStatus, setClusterStatus] = useState<AIClusterStatus | null>(null);
-  const [templates, setTemplates] = useState<AIDiagnosisTemplate[]>([]);
-  const [activeTemplateId, setActiveTemplateId] = useState('');
   const [inputMessage, setInputMessage] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -652,8 +642,7 @@ export default function AIDiagnosis() {
       setMessages(createWelcomeMessage(selectedCluster?.name || '默认诊断上下文'));
 
       try {
-        const [templateList, history, status] = await Promise.all([
-          apiClient.get<AIDiagnosisTemplate[]>(aiDiagnosisAPI.getTemplates),
+        const [history, status] = await Promise.all([
           apiClient.get<AIConversation[]>(aiDiagnosisAPI.getDiagnosisHistory, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
           apiClient.get<AIClusterStatus>(aiDiagnosisAPI.getNodeStatus, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
         ]);
@@ -662,7 +651,6 @@ export default function AIDiagnosis() {
           return;
         }
 
-        setTemplates(Array.isArray(templateList) ? templateList : []);
         setConversations(history);
         setClusterStatus(status);
         setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
@@ -781,13 +769,6 @@ export default function AIDiagnosis() {
     setInputMessage('');
   };
 
-  const handleSelectTemplate = (template: AIDiagnosisTemplate) => {
-    setActiveTemplateId(template.id);
-    setInputMessage(template.prompt);
-    setActiveTab('chat');
-    composerRef.current?.focus();
-  };
-
   const applyConversationResponse = async (response: AIChatResponse) => {
     setCurrentConversationId(response.conversation.id);
     setClusterStatus(response.cluster);
@@ -818,7 +799,6 @@ export default function AIDiagnosis() {
       id: placeholderId,
       role: 'assistant',
       content: '',
-      metadata: activeTemplateId ? { templateId: activeTemplateId } : undefined,
       createdAt: now,
       streaming: true,
     };
@@ -831,7 +811,6 @@ export default function AIDiagnosis() {
       conversationId: currentConversationId || undefined,
       clusterId: selectedClusterId || undefined,
       message: nextMessage,
-      templateId: activeTemplateId || undefined,
     };
 
     try {
@@ -1075,31 +1054,6 @@ export default function AIDiagnosis() {
 
                     <div className={`shrink-0 border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="grid gap-3">
-                        <div className="flex flex-wrap gap-2">
-                          {templates.map((template) => (
-                            <button
-                              key={template.id}
-                              type="button"
-                              onClick={() => handleSelectTemplate(template)}
-                              className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                                activeTemplateId === template.id
-                                  ? 'bg-blue-600 text-white'
-                                  : isDark
-                                    ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                              }`}
-                            >
-                              {template.title}
-                            </button>
-                          ))}
-                        </div>
-
-                        {activeTemplateId && (
-                          <div className={`rounded-xl border px-3 py-3 text-sm ${isDark ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                            {templates.find((item) => item.id === activeTemplateId)?.description}
-                          </div>
-                        )}
-
                         <div className="relative">
                           <textarea
                             ref={composerRef}

@@ -1312,7 +1312,7 @@ export default function AIDiagnosis() {
   };
 
   return (
-    <div className={`min-h-screen overflow-x-hidden transition-colors duration-300 lg:h-screen lg:overflow-hidden ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`h-screen overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
@@ -1345,7 +1345,7 @@ export default function AIDiagnosis() {
         </div>
       )}
 
-      <div className="flex h-full min-h-screen">
+      <div className="flex h-full min-h-0">
         <aside className={`hidden w-72 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
           <div className={`flex h-20 items-center border-b px-6 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center gap-3">
@@ -1382,7 +1382,7 @@ export default function AIDiagnosis() {
           </div>
         </aside>
 
-        <main className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-screen">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className={`shrink-0 border-b px-4 py-4 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 items-center gap-3">
@@ -1445,44 +1445,45 @@ export default function AIDiagnosis() {
           </header>
 
           <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
-            {latestInspection && (
-              <div className={`mb-4 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold">最近巡检</span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
-                        {getRiskMeta(latestInspection.riskLevel, theme).label}
-                      </span>
-                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {formatConversationTime(latestInspection.generatedAt)}
-                      </span>
+            <div className="flex h-full min-h-0 flex-col">
+              {latestInspection && (
+                <div className={`mb-4 shrink-0 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold">最近巡检</span>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
+                          {getRiskMeta(latestInspection.riskLevel, theme).label}
+                        </span>
+                        <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {formatConversationTime(latestInspection.generatedAt)}
+                        </span>
+                      </div>
+                      <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
                     </div>
-                    <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {latestInspection.issues.slice(0, 2).map((issue) => (
-                      <span
-                        key={issue.id}
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
+                    <div className="flex flex-wrap gap-2">
+                      {latestInspection.issues.slice(0, 2).map((issue) => (
+                        <span
+                          key={issue.id}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
+                        >
+                          {issue.title}
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('issues')}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
                       >
-                        {issue.title}
-                      </span>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('issues')}
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
-                    >
-                      查看问题中心
-                    </button>
+                        查看问题中心
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <section className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+              <section className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
@@ -2131,7 +2132,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               )}
-            </section>
+              </section>
+            </div>
           </div>
         </main>
       </div>

@@ -18,6 +18,7 @@ import (
 
 type AIInspectionRunner struct {
 	inspectionStore  *store.AIInspectionStore
+	issueStore       *store.AIIssueStore
 	clusterStore     *store.ClusterStore
 	auditStore       *store.AuditStore
 	dashboardService *service.DashboardService
@@ -78,6 +79,7 @@ type aiRiskSummaryResponse struct {
 
 func NewAIInspectionRunner(
 	inspectionStore *store.AIInspectionStore,
+	issueStore *store.AIIssueStore,
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
 	snapshotStore *store.SnapshotStore,
@@ -85,6 +87,7 @@ func NewAIInspectionRunner(
 ) *AIInspectionRunner {
 	return &AIInspectionRunner{
 		inspectionStore:  inspectionStore,
+		issueStore:       issueStore,
 		clusterStore:     clusterStore,
 		auditStore:       auditStore,
 		dashboardService: service.NewDashboardService(snapshotStore, k8sManager),
@@ -139,6 +142,33 @@ func (r *AIInspectionRunner) Run(ctx context.Context, clusterID string, triggerS
 			return nil, saveErr
 		}
 		result.ID = saved.ID
+	}
+
+	if r.issueStore != nil {
+		syncEntries := make([]store.AIIssueSyncEntry, 0, len(result.Issues))
+		for _, issue := range result.Issues {
+			syncEntries = append(syncEntries, store.AIIssueSyncEntry{
+				IssueKey:      issue.ID,
+				Category:      issue.Category,
+				Title:         issue.Title,
+				Summary:       issue.Summary,
+				RiskLevel:     issue.RiskLevel,
+				Score:         issue.Score,
+				AffectedCount: issue.AffectedCount,
+				Target:        issue.Target,
+				Evidence:      issue.Evidence,
+				Actions:       issue.Actions,
+			})
+		}
+		if err := r.issueStore.SyncInspection(ctx, store.SyncAIIssuesInput{
+			ClusterID:   result.ClusterID,
+			ClusterName: result.ClusterName,
+			SourceID:    result.ID,
+			DetectedAt:  result.CompletedAt,
+			Issues:      syncEntries,
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	if triggerSource == store.AIInspectionTriggerManual {

@@ -60,13 +60,28 @@ func main() {
 		log.Fatalf("failed to initialize ai history storage: %v", err)
 	}
 
+	aiTemplateStore := store.NewAITemplateStore(pool)
+	if err := aiTemplateStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize ai template storage: %v", err)
+	}
+
+	aiMemoryStore := store.NewAIMemoryStore(pool)
+	if err := aiMemoryStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize ai memory storage: %v", err)
+	}
+
 	aiInspectionStore := store.NewAIInspectionStore(pool)
 	if err := aiInspectionStore.Init(startupCtx); err != nil {
 		log.Fatalf("failed to initialize ai inspection storage: %v", err)
 	}
 
+	aiIssueStore := store.NewAIIssueStore(pool)
+	if err := aiIssueStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize ai issue storage: %v", err)
+	}
+
 	k8sManager := k8s.NewManager(clusterStore, time.Duration(cfg.K8s.RequestTimeoutSeconds)*time.Second)
-	aiInspectionRunner := api.NewAIInspectionRunner(aiInspectionStore, clusterStore, auditStore, snapshotStore, k8sManager)
+	aiInspectionRunner := api.NewAIInspectionRunner(aiInspectionStore, aiIssueStore, clusterStore, auditStore, snapshotStore, k8sManager)
 
 	startAIInspectionScheduler(
 		ctx,
@@ -77,7 +92,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiInspectionStore, aiInspectionRunner, k8sManager, redisCache),
+		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiTemplateStore, aiMemoryStore, aiInspectionStore, aiIssueStore, aiInspectionRunner, k8sManager, redisCache),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

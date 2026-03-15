@@ -40,6 +40,8 @@ type ConversationRole = 'user' | 'assistant';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type Severity = 'low' | 'medium' | 'high' | 'critical';
 type ActionPriority = 'p1' | 'p2' | 'p3';
+type IssueStatus = 'new' | 'following' | 'resolved' | 'recovered';
+type FeedbackLabel = 'helpful' | 'needs_improvement' | 'resolved';
 
 interface AITargetRef {
   kind: 'node' | 'pod' | 'workload';
@@ -52,7 +54,7 @@ interface AITargetRef {
 
 interface AIDiagnosisEvidence {
   id: string;
-  type: 'event' | 'metric' | 'log' | 'status';
+  type: 'event' | 'metric' | 'log' | 'status' | 'audit' | 'history';
   severity: Severity;
   title: string;
   summary: string;
@@ -76,6 +78,16 @@ interface AIDiagnosisAction {
   commandHint?: string;
   risk?: string;
   target?: AITargetRef | null;
+  operation?: AIActionOperation | null;
+}
+
+interface AIActionOperation {
+  label: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  endpoint: string;
+  body?: Record<string, unknown>;
+  confirmText?: string;
+  successMessage?: string;
 }
 
 interface AIDiagnosisReport {
@@ -120,6 +132,66 @@ interface AIInspectionIssue {
   title: string;
   riskLevel: RiskLevel;
   score: number;
+}
+
+interface AIIssue {
+  id: string;
+  issueKey: string;
+  clusterId?: string;
+  clusterName?: string;
+  category: string;
+  title: string;
+  summary: string;
+  riskLevel: RiskLevel;
+  score: number;
+  affectedCount: number;
+  occurrenceCount: number;
+  status: IssueStatus;
+  note?: string;
+  sourceId?: string;
+  target?: AITargetRef | null;
+  evidence?: AIDiagnosisEvidence[];
+  actions?: AIDiagnosisAction[];
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  resolvedAt?: string;
+  updatedAt: string;
+}
+
+interface AIIssueListResponse {
+  items: AIIssue[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+interface AIMemory {
+  id: string;
+  clusterId?: string;
+  clusterName?: string;
+  sourceType: string;
+  sourceId?: string;
+  resourceKind?: string;
+  resourceScope?: string;
+  resourceNamespace?: string;
+  resourceName?: string;
+  feedbackLabel?: string;
+  title: string;
+  summary: string;
+  tags?: string[] | null;
+  payload?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AITemplate {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  prompt: string;
+  source?: 'system' | 'custom';
+  editable?: boolean;
 }
 
 interface AIInspectionCounts {
@@ -227,6 +299,13 @@ const suggestionPrompts = [
   '总结当前最需要关注的风险点',
   '根据当前状态生成运维检查清单',
 ];
+
+const issueStatusMeta: Record<IssueStatus, { label: string; color: string }> = {
+  new: { label: '新发现', color: 'rose' },
+  following: { label: '持续跟踪', color: 'blue' },
+  resolved: { label: '已恢复', color: 'emerald' },
+  recovered: { label: '已自动恢复', color: 'slate' },
+};
 
 function createWelcomeMessage(clusterName: string): AIConversationMessage[] {
   const displayClusterName = clusterName || '默认诊断上下文';
@@ -354,6 +433,104 @@ function mapTargetLabel(target?: AITargetRef | null) {
   return target.name;
 }
 
+function trimApiEndpoint(endpoint?: string | null) {
+  if (!endpoint) {
+    return '';
+  }
+  return endpoint.startsWith('/api') ? endpoint.slice(4) : endpoint;
+}
+
+function buildFallbackOperation(target?: AITargetRef | null): AIActionOperation | null {
+  if (!target) {
+    return null;
+  }
+
+  if (target.kind === 'pod' && target.namespace) {
+    return {
+      label: '重启 Pod',
+      method: 'POST',
+      endpoint: `/pods/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/restart`,
+      confirmText: `确认重启 Pod ${mapTargetLabel(target)} 吗？`,
+      successMessage: 'Pod 已重启',
+    };
+  }
+
+  if (target.kind === 'node') {
+    return {
+      label: '开启维护模式',
+      method: 'POST',
+      endpoint: `/nodes/${encodeURIComponent(target.name)}/maintenance/enable`,
+      confirmText: `确认将节点 ${mapTargetLabel(target)} 设为维护模式吗？`,
+      successMessage: '节点已进入维护模式',
+    };
+  }
+
+  if (target.kind === 'workload' && target.namespace && target.scope) {
+    const pluralScopeMap: Record<string, string> = {
+      deployment: 'deployments',
+      statefulset: 'statefulsets',
+      daemonset: 'daemonsets',
+      cronjob: 'cronjobs',
+    };
+    const scope = pluralScopeMap[target.scope] || target.scope;
+    return {
+      label: '重启工作负载',
+      method: 'POST',
+      endpoint: `/${scope}/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/restart`,
+      confirmText: `确认重启工作负载 ${mapTargetLabel(target)} 吗？`,
+      successMessage: '工作负载已触发重启',
+    };
+  }
+
+  return null;
+}
+
+function formatRelativeTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--';
+  }
+
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 1) {
+    return '刚刚';
+  }
+  if (minutes < 60) {
+    return `${minutes} 分钟前`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours} 小时前`;
+  }
+  const days = Math.round(hours / 24);
+  return `${days} 天前`;
+}
+
+function normalizeMemoryTags(tags?: string[] | null) {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+  return tags.filter((item) => typeof item === 'string' && item.trim());
+}
+
+function findPrimaryTarget(report?: AIDiagnosisReport | null) {
+  if (!report) {
+    return null;
+  }
+  for (const action of report.actions) {
+    if (action.target) {
+      return action.target;
+    }
+  }
+  for (const evidence of report.evidence) {
+    if (evidence.target) {
+      return evidence.target;
+    }
+  }
+  return null;
+}
+
 function buildAuthHeaders() {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -462,10 +639,12 @@ function ReportCard({
   report,
   isDark,
   onOpenTarget,
+  onExecuteAction,
 }: {
   report: AIDiagnosisReport;
   isDark: boolean;
   onOpenTarget: (target: AITargetRef | undefined | null) => void;
+  onExecuteAction: (action: AIDiagnosisAction) => void;
 }) {
   const riskMeta = getRiskMeta(report.riskLevel, isDark ? 'dark' : 'light');
 
@@ -534,16 +713,29 @@ function ReportCard({
                     </div>
                     <p className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{item.description}</p>
                     {item.target && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenTarget(item.target)}
-                        className={`mt-3 inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                          isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                        }`}
-                      >
-                        查看 {mapTargetLabel(item.target)}
-                        <ArrowRight size={13} />
-                      </button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onOpenTarget(item.target)}
+                          className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                            isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          }`}
+                        >
+                          查看 {mapTargetLabel(item.target)}
+                          <ArrowRight size={13} />
+                        </button>
+                        {(item.operation || buildFallbackOperation(item.target)) && (
+                          <button
+                            type="button"
+                            onClick={() => onExecuteAction(item)}
+                            className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                              isDark ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {(item.operation || buildFallbackOperation(item.target))?.label || '执行建议操作'}
+                          </button>
+                        )}
+                      </div>
                     )}
                     {item.commandHint && (
                       <div className={`mt-2 rounded-lg px-3 py-2 text-xs ${isDark ? 'bg-gray-900 text-gray-300' : 'bg-white text-gray-600'}`}>
@@ -622,12 +814,28 @@ export default function AIDiagnosis() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [refreshingCluster, setRefreshingCluster] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'history'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'issues' | 'memory' | 'templates' | 'history'>('chat');
   const [currentConversationId, setCurrentConversationId] = useState('');
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [messages, setMessages] = useState<AIConversationMessage[]>(createWelcomeMessage('默认诊断上下文'));
   const [clusterStatus, setClusterStatus] = useState<AIClusterStatus | null>(null);
   const [latestInspection, setLatestInspection] = useState<AIInspectionSummary | null>(null);
+  const [issues, setIssues] = useState<AIIssueListResponse>({ items: [], total: 0, page: 1, pageSize: 12 });
+  const [issueStatusFilter, setIssueStatusFilter] = useState<string>('');
+  const [issueRiskFilter, setIssueRiskFilter] = useState<string>('');
+  const [issueQuery, setIssueQuery] = useState('');
+  const [issuesLoading, setIssuesLoading] = useState(false);
+  const [memories, setMemories] = useState<AIMemory[]>([]);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
+  const [memorySourceFilter, setMemorySourceFilter] = useState('');
+  const [templates, setTemplates] = useState<AITemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [activeTemplateId, setActiveTemplateId] = useState('');
+  const [editingTemplateId, setEditingTemplateId] = useState('');
+  const [templateDraft, setTemplateDraft] = useState({ title: '', description: '', category: '', prompt: '' });
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [actionSubmitting, setActionSubmitting] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState('');
   const [inputMessage, setInputMessage] = useState('');
   const [runningInspection, setRunningInspection] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -671,10 +879,13 @@ export default function AIDiagnosis() {
       setMessages(createWelcomeMessage(selectedCluster?.name || '默认诊断上下文'));
 
       try {
-        const [history, status, inspection] = await Promise.all([
+        const [history, status, inspection, issuesResult, memoryItems, templateItems] = await Promise.all([
           apiClient.get<AIConversation[]>(aiDiagnosisAPI.getDiagnosisHistory, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
           apiClient.get<AIClusterStatus>(aiDiagnosisAPI.getNodeStatus, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
           apiClient.get<AIInspectionSummary | null>(aiDiagnosisAPI.getLatestInspection, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
+          apiClient.get<AIIssueListResponse>(aiDiagnosisAPI.listIssues, selectedClusterId ? { clusterId: selectedClusterId, page: 1, limit: 12 } : { page: 1, limit: 12 }),
+          apiClient.get<AIMemory[]>(aiDiagnosisAPI.listMemories, selectedClusterId ? { clusterId: selectedClusterId, limit: 24 } : { limit: 24 }),
+          apiClient.get<AITemplate[]>(aiDiagnosisAPI.getTemplates),
         ]);
 
         if (cancelled) {
@@ -684,6 +895,9 @@ export default function AIDiagnosis() {
         setConversations(history);
         setClusterStatus(status);
         setLatestInspection(inspection ?? null);
+        setIssues(issuesResult);
+        setMemories(memoryItems);
+        setTemplates(templateItems);
         setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
       } finally {
         if (!cancelled) {
@@ -698,6 +912,20 @@ export default function AIDiagnosis() {
       cancelled = true;
     };
   }, [selectedCluster?.name, selectedClusterId]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    void refreshIssues({ page: 1 });
+  }, [issueStatusFilter, issueRiskFilter]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    void refreshMemories();
+  }, [memorySourceFilter]);
 
   const handleLogout = () => {
     logout();
@@ -778,6 +1006,187 @@ export default function AIDiagnosis() {
     }
   };
 
+  const refreshIssues = async (overrides?: Partial<{ page: number; limit: number; status: string; riskLevel: string; query: string }>) => {
+    setIssuesLoading(true);
+    try {
+      const response = await apiClient.get<AIIssueListResponse>(aiDiagnosisAPI.listIssues, {
+        clusterId: selectedClusterId || undefined,
+        page: overrides?.page ?? issues.page ?? 1,
+        limit: overrides?.limit ?? issues.pageSize ?? 12,
+        status: (overrides?.status ?? issueStatusFilter) || undefined,
+        riskLevel: (overrides?.riskLevel ?? issueRiskFilter) || undefined,
+        query: (overrides?.query ?? issueQuery) || undefined,
+      });
+      setIssues(response);
+    } finally {
+      setIssuesLoading(false);
+    }
+  };
+
+  const refreshMemories = async (sourceType?: string) => {
+    setMemoriesLoading(true);
+    try {
+      const response = await apiClient.get<AIMemory[]>(aiDiagnosisAPI.listMemories, {
+        clusterId: selectedClusterId || undefined,
+        sourceType: (sourceType ?? memorySourceFilter) || undefined,
+        limit: 24,
+      });
+      setMemories(response);
+    } finally {
+      setMemoriesLoading(false);
+    }
+  };
+
+  const refreshTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const response = await apiClient.get<AITemplate[]>(aiDiagnosisAPI.getTemplates);
+      setTemplates(response);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const executeActionOperation = async (action: AIDiagnosisAction) => {
+    const operation = action.operation || buildFallbackOperation(action.target);
+    if (!operation) {
+      if (action.target) {
+        openTarget(action.target);
+      }
+      return;
+    }
+
+    if (operation.confirmText && !window.confirm(operation.confirmText)) {
+      return;
+    }
+
+    const endpoint = trimApiEndpoint(operation.endpoint);
+    if (!endpoint) {
+      return;
+    }
+
+    setActionSubmitting(`${action.title}-${endpoint}`);
+    try {
+      const body = operation.body || {};
+      switch (operation.method) {
+        case 'DELETE':
+          await apiClient.delete(endpoint);
+          break;
+        case 'PUT':
+          await apiClient.put(endpoint, body);
+          break;
+        case 'PATCH':
+          await apiClient.patch(endpoint, body);
+          break;
+        case 'GET':
+          await apiClient.get(endpoint);
+          break;
+        default:
+          await apiClient.post(endpoint, body);
+          break;
+      }
+      toast.success(operation.successMessage || '操作已执行');
+      await Promise.all([refreshClusterStatus(), refreshIssues(), refreshHistory(currentConversationId)]);
+    } finally {
+      setActionSubmitting('');
+    }
+  };
+
+  const handleIssueStatusAction = async (issue: AIIssue, nextStatus: 'follow' | 'resolve') => {
+    const endpoint = nextStatus === 'follow' ? aiDiagnosisAPI.followIssue : aiDiagnosisAPI.resolveIssue;
+    const idEndpoint = replacePathParams(endpoint, { id: issue.id });
+    const note =
+      nextStatus === 'follow'
+        ? '已纳入人工持续跟踪'
+        : '已通过人工确认恢复，可作为后续复盘经验';
+    await apiClient.post<AIIssue>(idEndpoint, { note });
+    toast.success(nextStatus === 'follow' ? '问题已加入持续跟踪' : '问题已标记为已恢复');
+    await Promise.all([refreshIssues(), refreshMemories()]);
+  };
+
+  const handleFeedback = async (message: AIConversationMessage, label: FeedbackLabel) => {
+    const report = message.metadata?.report;
+    const target = report ? findPrimaryTarget(report) : null;
+    setFeedbackSubmitting(message.id);
+    try {
+      await apiClient.post(aiDiagnosisAPI.saveMemoryFeedback, {
+        clusterId: selectedClusterId || undefined,
+        conversationId: currentConversationId || undefined,
+        messageId: message.id,
+        feedbackLabel: label,
+        title: currentConversation?.title || 'AI 诊断反馈',
+        summary: report?.summary || message.content.slice(0, 140),
+        note: label === 'helpful' ? '该次诊断结论对处理问题有帮助。' : '该次诊断需要继续补充证据或更精确建议。',
+        target,
+      });
+      toast.success(label === 'helpful' ? '已记录为有效诊断' : '已记录为待改进反馈');
+      await refreshMemories();
+    } finally {
+      setFeedbackSubmitting('');
+    }
+  };
+
+  const beginCreateTemplate = () => {
+    setEditingTemplateId('new');
+    setTemplateDraft({ title: '', description: '', category: '', prompt: '' });
+    setActiveTab('templates');
+  };
+
+  const beginEditTemplate = (template: AITemplate) => {
+    setEditingTemplateId(template.id);
+    setTemplateDraft({
+      title: template.title,
+      description: template.description,
+      category: template.category,
+      prompt: template.prompt,
+    });
+    setActiveTab('templates');
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!templateDraft.title.trim() || !templateDraft.prompt.trim()) {
+      toast.error('请至少填写模板名称和提示词');
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      if (editingTemplateId && editingTemplateId !== 'new') {
+        await apiClient.put(replacePathParams(aiDiagnosisAPI.updateTemplate, { id: editingTemplateId }), templateDraft);
+      } else {
+        await apiClient.post(aiDiagnosisAPI.createTemplate, templateDraft);
+      }
+      toast.success('模板已保存');
+      setEditingTemplateId('');
+      setTemplateDraft({ title: '', description: '', category: '', prompt: '' });
+      await refreshTemplates();
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (template: AITemplate) => {
+    if (!window.confirm(`确认删除模板“${template.title}”吗？`)) {
+      return;
+    }
+    await apiClient.delete(replacePathParams(aiDiagnosisAPI.deleteTemplate, { id: template.id }));
+    toast.success('模板已删除');
+    if (activeTemplateId === template.id) {
+      setActiveTemplateId('');
+    }
+    if (editingTemplateId === template.id) {
+      setEditingTemplateId('');
+      setTemplateDraft({ title: '', description: '', category: '', prompt: '' });
+    }
+    await refreshTemplates();
+  };
+
+  const handleUseTemplate = (template: AITemplate) => {
+    setActiveTemplateId(template.id);
+    setInputMessage(template.prompt);
+    setActiveTab('chat');
+  };
+
   const handleRunInspection = async () => {
     setRunningInspection(true);
     try {
@@ -785,7 +1194,7 @@ export default function AIDiagnosis() {
         clusterId: selectedClusterId || undefined,
       });
       setLatestInspection(result);
-      await refreshClusterStatus();
+      await Promise.all([refreshClusterStatus(), refreshIssues(), refreshMemories()]);
       toast.success('AI 主动巡检已完成');
     } finally {
       setRunningInspection(false);
@@ -829,7 +1238,7 @@ export default function AIDiagnosis() {
         ? response.conversation.messages
         : createWelcomeMessage(response.cluster.clusterName || welcomeClusterName),
     );
-    await refreshHistory(response.conversation.id);
+    await Promise.all([refreshHistory(response.conversation.id), refreshMemories()]);
   };
 
   const handleSendMessage = async () => {
@@ -863,6 +1272,7 @@ export default function AIDiagnosis() {
       conversationId: currentConversationId || undefined,
       clusterId: selectedClusterId || undefined,
       message: nextMessage,
+      templateId: activeTemplateId || undefined,
     };
 
     try {
@@ -889,6 +1299,7 @@ export default function AIDiagnosis() {
         throw fallbackError;
       }
     } finally {
+      setActiveTemplateId('');
       setSending(false);
     }
   };
@@ -1059,6 +1470,13 @@ export default function AIDiagnosis() {
                         {issue.title}
                       </span>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('issues')}
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                    >
+                      查看问题中心
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1066,36 +1484,30 @@ export default function AIDiagnosis() {
 
             <section className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium ${
-                    activeTab === 'chat'
-                      ? isDark
-                        ? 'border-b-2 border-blue-500 bg-gray-900 text-white'
-                        : 'border-b-2 border-blue-500 bg-blue-50 text-blue-600'
-                      : isDark
-                        ? 'text-gray-400 hover:text-white'
-                        : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  <MessageCircle size={16} className="mr-1 inline-block" />
-                  聊天
-                </button>
-                <button
-                  onClick={() => setActiveTab('history')}
-                  className={`flex-1 px-4 py-3 text-sm font-medium ${
-                    activeTab === 'history'
-                      ? isDark
-                        ? 'border-b-2 border-blue-500 bg-gray-900 text-white'
-                        : 'border-b-2 border-blue-500 bg-blue-50 text-blue-600'
-                      : isDark
-                        ? 'text-gray-400 hover:text-white'
-                        : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                >
-                  <History size={16} className="mr-1 inline-block" />
-                  诊断历史
-                </button>
+                {[
+                  { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
+                  { key: 'issues', label: '问题中心', icon: <ShieldAlert size={16} className="mr-1 inline-block" /> },
+                  { key: 'memory', label: '诊断记忆', icon: <Clock size={16} className="mr-1 inline-block" /> },
+                  { key: 'templates', label: '模板中心', icon: <FileText size={16} className="mr-1 inline-block" /> },
+                  { key: 'history', label: '诊断历史', icon: <History size={16} className="mr-1 inline-block" /> },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                    className={`flex-1 px-4 py-3 text-sm font-medium ${
+                      activeTab === tab.key
+                        ? isDark
+                          ? 'border-b-2 border-blue-500 bg-gray-900 text-white'
+                          : 'border-b-2 border-blue-500 bg-blue-50 text-blue-600'
+                        : isDark
+                          ? 'text-gray-400 hover:text-white'
+                          : 'text-gray-500 hover:text-gray-900'
+                    }`}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
               </div>
 
               {loading ? (
@@ -1137,7 +1549,31 @@ export default function AIDiagnosis() {
                               <pre className="whitespace-pre-wrap break-words font-sans">{message.content || '正在生成内容...'}</pre>
                             </div>
                             {message.role === 'assistant' && message.metadata?.report && (
-                              <ReportCard report={message.metadata.report} isDark={isDark} onOpenTarget={openTarget} />
+                              <div className="w-full">
+                                <ReportCard report={message.metadata.report} isDark={isDark} onOpenTarget={openTarget} onExecuteAction={executeActionOperation} />
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleFeedback(message, 'helpful')}
+                                    disabled={feedbackSubmitting === message.id}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                      isDark ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    }`}
+                                  >
+                                    {feedbackSubmitting === message.id ? '提交中...' : '这次诊断有帮助'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleFeedback(message, 'needs_improvement')}
+                                    disabled={feedbackSubmitting === message.id}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                      isDark ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                                    }`}
+                                  >
+                                    需要补充证据
+                                  </button>
+                                </div>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1146,6 +1582,20 @@ export default function AIDiagnosis() {
 
                     <div className={`shrink-0 border-t p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="grid gap-3">
+                        {activeTemplateId && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
+                              当前模板：{templates.find((item) => item.id === activeTemplateId)?.title || activeTemplateId}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTemplateId('')}
+                              className={`rounded-full px-3 py-1 text-xs ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                            >
+                              取消模板
+                            </button>
+                          </div>
+                        )}
                         <div className="relative">
                           <textarea
                             ref={composerRef}
@@ -1274,6 +1724,339 @@ export default function AIDiagnosis() {
                         )}
                       </div>
                     </div>
+                  </div>
+                </div>
+              ) : activeTab === 'issues' ? (
+                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.6fr,1fr]">
+                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="font-semibold">问题中心</div>
+                        <select
+                          value={issueStatusFilter}
+                          onChange={(event) => setIssueStatusFilter(event.target.value)}
+                          className={`rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        >
+                          <option value="">全部状态</option>
+                          <option value="new">新发现</option>
+                          <option value="following">持续跟踪</option>
+                          <option value="resolved">已恢复</option>
+                          <option value="recovered">自动恢复</option>
+                        </select>
+                        <select
+                          value={issueRiskFilter}
+                          onChange={(event) => setIssueRiskFilter(event.target.value)}
+                          className={`rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        >
+                          <option value="">全部风险</option>
+                          <option value="critical">高危</option>
+                          <option value="high">高风险</option>
+                          <option value="medium">中风险</option>
+                          <option value="low">低风险</option>
+                        </select>
+                        <div className="flex flex-1 items-center gap-2">
+                          <input
+                            value={issueQuery}
+                            onChange={(event) => setIssueQuery(event.target.value)}
+                            placeholder="搜索标题、摘要或分类"
+                            className={`min-w-[220px] flex-1 rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void refreshIssues({ page: 1, query: issueQuery })}
+                            className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                          >
+                            筛选
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {issuesLoading ? (
+                      <div className={`h-40 animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                    ) : issues.items.length === 0 ? (
+                      <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                        当前没有匹配的问题卡片，可以先运行一次 AI 主动巡检。
+                      </div>
+                    ) : (
+                      issues.items.map((issue) => {
+                        const riskMeta = getRiskMeta(issue.riskLevel, theme);
+                        const statusMeta = issueStatusMeta[issue.status] || issueStatusMeta.new;
+                        return (
+                          <div key={issue.id} className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="font-semibold">{issue.title}</div>
+                                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${riskMeta.className}`}>{riskMeta.label}</span>
+                                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{statusMeta.label}</span>
+                                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>{issue.category}</span>
+                                </div>
+                                <p className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{issue.summary}</p>
+                                <div className={`mt-3 flex flex-wrap gap-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  <span>首次发现：{formatConversationTime(issue.firstDetectedAt)}</span>
+                                  <span>最近出现：{formatConversationTime(issue.lastDetectedAt)}</span>
+                                  <span>出现次数：{issue.occurrenceCount}</span>
+                                  <span>影响对象：{issue.affectedCount}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                {issue.target && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openTarget(issue.target)}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                                  >
+                                    跳转资源
+                                  </button>
+                                )}
+                                {issue.actions?.[0] && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void executeActionOperation(issue.actions?.[0])}
+                                    disabled={actionSubmitting === `${issue.actions?.[0].title}-${trimApiEndpoint(issue.actions?.[0].operation?.endpoint || '')}`}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                                  >
+                                    {issue.actions?.[0].operation?.label || buildFallbackOperation(issue.actions?.[0].target)?.label || '执行建议动作'}
+                                  </button>
+                                )}
+                                {issue.status !== 'following' && issue.status !== 'resolved' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleIssueStatusAction(issue, 'follow')}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                                  >
+                                    持续跟踪
+                                  </button>
+                                )}
+                                {issue.status !== 'resolved' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleIssueStatusAction(issue, 'resolve')}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-emerald-700 text-white hover:bg-emerald-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                                  >
+                                    标记恢复
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {!!issue.evidence?.length && (
+                              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                                {issue.evidence.slice(0, 4).map((evidence) => (
+                                  <div key={evidence.id} className={`rounded-lg border p-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'}`}>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-sm font-medium">{evidence.title}</div>
+                                      <span className={`rounded-full px-2 py-0.5 text-[11px] ${getSeverityMeta(evidence.severity, theme).className}`}>{getSeverityMeta(evidence.severity, theme).label}</span>
+                                    </div>
+                                    <div className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{evidence.summary}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="font-semibold">处理建议</div>
+                      <div className={`mt-3 space-y-3 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <p>问题中心会把主动巡检发现的异常沉淀为可持续跟踪的问题卡片。</p>
+                        <p>“持续跟踪”适合需要人工验证的风险，“标记恢复”会同步写入诊断记忆，便于后续复盘。</p>
+                        <p>如果问题再次出现，系统会自动累计出现次数并重新提升优先级。</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : activeTab === 'memory' ? (
+                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="font-semibold">诊断记忆</div>
+                        <select
+                          value={memorySourceFilter}
+                          onChange={(event) => setMemorySourceFilter(event.target.value)}
+                          className={`rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        >
+                          <option value="">全部来源</option>
+                          <option value="conversation">对话沉淀</option>
+                          <option value="feedback">人工反馈</option>
+                          <option value="issue-resolution">问题复盘</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {memoriesLoading ? (
+                      <div className={`h-40 animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                    ) : memories.length === 0 ? (
+                      <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+                        当前还没有诊断记忆。完成一次 AI 问答、人工反馈或问题复盘后，会自动沉淀到这里。
+                      </div>
+                    ) : (
+                      memories.map((memory) => (
+                        <div key={memory.id} className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-semibold">{memory.title}</div>
+                            {memory.feedbackLabel && (
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] ${memory.feedbackLabel === 'needs_improvement' ? (isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700') : (isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700')}`}>
+                                {memory.feedbackLabel}
+                              </span>
+                            )}
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                              {memory.sourceType}
+                            </span>
+                          </div>
+                          <p className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{memory.summary}</p>
+                          <div className={`mt-3 flex flex-wrap gap-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <span>更新时间：{formatConversationTime(memory.updatedAt)}</span>
+                            {(memory.resourceNamespace || memory.resourceName) && (
+                              <span>关联资源：{memory.resourceNamespace ? `${memory.resourceNamespace}/` : ''}{memory.resourceName || '--'}</span>
+                            )}
+                            {normalizeMemoryTags(memory.tags).map((tag) => (
+                              <span key={`${memory.id}-${tag}`} className={`rounded-full px-2 py-0.5 ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{tag}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className={`overflow-y-auto rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="font-semibold">记忆如何工作</div>
+                    <div className={`mt-4 space-y-3 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <p>系统会自动把 AI 对话摘要、人工“有帮助/待改进”反馈、问题恢复复盘沉淀成记忆。</p>
+                      <p>之后新的 AI 诊断会把这些记忆一起带给模型，减少重复排查和无效建议。</p>
+                      <p>这也是后续做“问题复盘”和“长期优化建议”的基础。</p>
+                    </div>
+                  </div>
+                </div>
+              ) : activeTab === 'templates' ? (
+                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">模板中心</div>
+                      <button
+                        type="button"
+                        onClick={beginCreateTemplate}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                      >
+                        新建模板
+                      </button>
+                    </div>
+
+                    {templatesLoading ? (
+                      <div className={`h-40 animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                    ) : (
+                      templates.map((template) => (
+                        <div key={template.id} className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-white'}`}>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="font-semibold">{template.title}</div>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] ${template.source === 'custom' ? (isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700') : (isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600')}`}>
+                                  {template.source === 'custom' ? '自定义' : '系统内置'}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{template.category}</span>
+                              </div>
+                              <p className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{template.description}</p>
+                              <div className={`mt-3 rounded-lg px-3 py-3 text-xs leading-6 ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-50 text-gray-600'}`}>{template.prompt}</div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleUseTemplate(template)}
+                                className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                              >
+                                应用模板
+                              </button>
+                              {template.editable && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => beginEditTemplate(template)}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                                  >
+                                    编辑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteTemplate(template)}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+                                  >
+                                    删除
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className={`overflow-y-auto rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">{editingTemplateId ? '编辑模板' : '模板说明'}</div>
+                      {editingTemplateId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingTemplateId('');
+                            setTemplateDraft({ title: '', description: '', category: '', prompt: '' });
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-xs ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}
+                        >
+                          取消
+                        </button>
+                      )}
+                    </div>
+                    {editingTemplateId ? (
+                      <div className="mt-4 space-y-3">
+                        <input
+                          value={templateDraft.title}
+                          onChange={(event) => setTemplateDraft((current) => ({ ...current, title: event.target.value }))}
+                          placeholder="模板名称"
+                          className={`w-full rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        />
+                        <input
+                          value={templateDraft.category}
+                          onChange={(event) => setTemplateDraft((current) => ({ ...current, category: event.target.value }))}
+                          placeholder="模板分类"
+                          className={`w-full rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        />
+                        <textarea
+                          value={templateDraft.description}
+                          onChange={(event) => setTemplateDraft((current) => ({ ...current, description: event.target.value }))}
+                          placeholder="模板说明"
+                          className={`min-h-[96px] w-full rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        />
+                        <textarea
+                          value={templateDraft.prompt}
+                          onChange={(event) => setTemplateDraft((current) => ({ ...current, prompt: event.target.value }))}
+                          placeholder="给大模型的模板提示词"
+                          className={`min-h-[180px] w-full rounded-lg border px-3 py-2 text-sm ${isDark ? 'border-gray-600 bg-gray-800 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveTemplate()}
+                          disabled={savingTemplate}
+                          className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+                        >
+                          {savingTemplate ? '保存中...' : '保存模板'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={`mt-4 space-y-3 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <p>模板中心用于沉淀高频诊断场景，比如 Pod Pending、PVC Pending、CrashLoopBackOff 等。</p>
+                        <p>系统内置模板适合标准场景，自定义模板更适合你的业务命名空间、组件和排查习惯。</p>
+                        <p>点击“应用模板”后，会把提示词带回聊天区，但不会像以前那样占用首页空间。</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

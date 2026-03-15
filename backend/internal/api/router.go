@@ -27,7 +27,10 @@ type handler struct {
 	clusterStore       *store.ClusterStore
 	auditStore         *store.AuditStore
 	aiHistoryStore     *store.AIConversationStore
+	aiTemplateStore    *store.AITemplateStore
+	aiMemoryStore      *store.AIMemoryStore
 	aiInspectionStore  *store.AIInspectionStore
+	aiIssueStore       *store.AIIssueStore
 	aiInspectionRunner *AIInspectionRunner
 	k8sManager         *k8s.Manager
 	redisCache         *cache.RedisCache
@@ -57,7 +60,10 @@ func NewRouter(
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
 	aiHistoryStore *store.AIConversationStore,
+	aiTemplateStore *store.AITemplateStore,
+	aiMemoryStore *store.AIMemoryStore,
 	aiInspectionStore *store.AIInspectionStore,
+	aiIssueStore *store.AIIssueStore,
 	aiInspectionRunner *AIInspectionRunner,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
@@ -68,7 +74,10 @@ func NewRouter(
 		clusterStore:       clusterStore,
 		auditStore:         auditStore,
 		aiHistoryStore:     aiHistoryStore,
+		aiTemplateStore:    aiTemplateStore,
+		aiMemoryStore:      aiMemoryStore,
 		aiInspectionStore:  aiInspectionStore,
+		aiIssueStore:       aiIssueStore,
 		aiInspectionRunner: aiInspectionRunner,
 		k8sManager:         k8sManager,
 		redisCache:         redisCache,
@@ -176,13 +185,23 @@ func NewRouter(
 
 	router.Route("/api/ai-diagnosis", func(r chi.Router) {
 		r.Get("/templates", h.wrap(h.listAIDiagnosisTemplates))
+		r.Post("/templates", h.wrap(h.createAIDiagnosisTemplate))
+		r.Put("/templates/{id}", h.wrap(h.updateAIDiagnosisTemplate))
+		r.Delete("/templates/{id}", h.wrap(h.deleteAIDiagnosisTemplate))
 		r.Get("/history", h.wrap(h.listAIDiagnosisHistory))
 		r.Get("/history/{id}", h.wrap(h.getAIDiagnosisConversation))
 		r.Delete("/history/{id}", h.wrap(h.deleteAIDiagnosisConversation))
 		r.Get("/inspections", h.wrap(h.listAIInspections))
 		r.Get("/inspections/latest", h.wrap(h.latestAIInspection))
 		r.Post("/inspections/run", h.wrap(h.runAIInspection))
+		r.Get("/issues", h.wrap(h.listAIIssues))
+		r.Get("/issues/{id}", h.wrap(h.getAIIssue))
+		r.Post("/issues/{id}/follow", h.wrap(h.followAIIssue))
+		r.Post("/issues/{id}/resolve", h.wrap(h.resolveAIIssue))
 		r.Get("/risk-summary", h.wrap(h.aiRiskSummary))
+		r.Get("/memory", h.wrap(h.listAIMemories))
+		r.Get("/memory/resource", h.wrap(h.listAIMemoriesByResource))
+		r.Post("/memory/feedback", h.wrap(h.saveAIMemoryFeedback))
 		r.Post("/chat", h.wrap(h.aiDiagnosisChat))
 		r.Post("/chat/stream", h.wrap(h.aiDiagnosisChatStream))
 		r.Get("/node-status", h.wrap(h.aiDiagnosisNodeStatus))

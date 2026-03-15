@@ -174,7 +174,11 @@ func (h *handler) deleteAIDiagnosisConversation(w http.ResponseWriter, r *http.R
 }
 
 func (h *handler) listAIDiagnosisTemplates(w http.ResponseWriter, r *http.Request) error {
-	writeJSON(w, http.StatusOK, aiDiagnosisTemplates())
+	items, err := h.listAvailableAIDiagnosisTemplates(r.Context())
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, items)
 	return nil
 }
 
@@ -276,11 +280,11 @@ func (h *handler) prepareAIDiagnosisRequest(
 
 	var template *aiDiagnosisTemplatePayload
 	if payload.TemplateID != "" {
-		nextTemplate, ok := aiDiagnosisTemplateByID(payload.TemplateID)
-		if !ok {
-			return aiDiagnosisPreparedInput{}, newHTTPError(http.StatusBadRequest, "诊断模板不存在")
+		nextTemplate, err := h.lookupAIDiagnosisTemplate(ctx, payload.TemplateID)
+		if err != nil {
+			return aiDiagnosisPreparedInput{}, err
 		}
-		template = &nextTemplate
+		template = nextTemplate
 		if payload.Message == "" {
 			payload.Message = nextTemplate.Prompt
 		}
@@ -400,6 +404,8 @@ func (h *handler) executeAIDiagnosis(
 		return aiDiagnosisExecutionResult{}, err
 	}
 
+	h.saveConversationMemory(ctx, prepared, *savedConversation, report)
+
 	return aiDiagnosisExecutionResult{
 		Conversation: toAIDiagnosisConversationResponse(*savedConversation),
 		Cluster:      prepared.Bundle.Status,
@@ -441,6 +447,9 @@ func (h *handler) buildAIDiagnosisLLMMessages(
 	contextJSON, err := json.MarshalIndent(map[string]any{
 		"cluster": prepared.Bundle.Status,
 		"report":  report,
+		"issues":  h.collectAIDiagnosisIssueContext(prepared.Bundle.Status.ClusterID),
+		"memory":  h.collectAIDiagnosisMemoryContext(prepared.Bundle.Status.ClusterID),
+		"audits":  h.collectAIDiagnosisAuditContext(prepared.Bundle.Status.ClusterID),
 	}, "", "  ")
 	if err != nil {
 		return nil, err

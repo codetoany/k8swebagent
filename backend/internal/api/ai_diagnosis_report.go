@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"k8s-agent-backend/internal/service"
+	"k8s-agent-backend/internal/store"
 )
 
 type aiDiagnosisTemplatePayload struct {
@@ -17,6 +19,8 @@ type aiDiagnosisTemplatePayload struct {
 	Description string `json:"description"`
 	Category    string `json:"category"`
 	Prompt      string `json:"prompt"`
+	Source      string `json:"source,omitempty"`
+	Editable    bool   `json:"editable,omitempty"`
 }
 
 type aiDiagnosisReport struct {
@@ -44,6 +48,16 @@ type aiDiagnosisAction struct {
 	CommandHint string                `json:"commandHint,omitempty"`
 	Risk        string                `json:"risk,omitempty"`
 	Target      *aiDiagnosisTargetRef `json:"target,omitempty"`
+	Operation   *aiDiagnosisOperation `json:"operation,omitempty"`
+}
+
+type aiDiagnosisOperation struct {
+	Label          string         `json:"label"`
+	Method         string         `json:"method"`
+	Endpoint       string         `json:"endpoint"`
+	Body           map[string]any `json:"body,omitempty"`
+	ConfirmText    string         `json:"confirmText,omitempty"`
+	SuccessMessage string         `json:"successMessage,omitempty"`
 }
 
 type aiDiagnosisEvidence struct {
@@ -79,6 +93,7 @@ func aiDiagnosisTemplates() []aiDiagnosisTemplatePayload {
 			Description: "分析 Pod 长时间 Pending、调度失败、资源不足或存储依赖未满足的问题。",
 			Category:    "调度与资源",
 			Prompt:      "请重点分析当前集群中的 Pending Pod，说明调度、资源、亲和性、污点和存储相关的可能原因，并给出优先处理建议。",
+			Source:      "system",
 		},
 		{
 			ID:          "pvc-pending",
@@ -86,6 +101,7 @@ func aiDiagnosisTemplates() []aiDiagnosisTemplatePayload {
 			Description: "分析卷申请失败、Provisioning 异常、StorageClass 配置和绑定问题。",
 			Category:    "存储",
 			Prompt:      "请重点排查当前集群中的 PVC Pending 或卷创建失败问题，结合事件、Pod 状态和工作负载影响给出诊断结论。",
+			Source:      "system",
 		},
 		{
 			ID:          "crashloopbackoff",
@@ -93,6 +109,7 @@ func aiDiagnosisTemplates() []aiDiagnosisTemplatePayload {
 			Description: "分析容器重复重启、启动命令、探针、配置和依赖异常。",
 			Category:    "稳定性",
 			Prompt:      "请重点分析当前集群中的 CrashLoopBackOff 或重复重启 Pod，结合日志、事件和工作负载状态给出优先建议。",
+			Source:      "system",
 		},
 		{
 			ID:          "node-pressure",
@@ -100,6 +117,7 @@ func aiDiagnosisTemplates() []aiDiagnosisTemplatePayload {
 			Description: "分析节点 CPU/内存压力、不可调度、异常事件和受影响工作负载。",
 			Category:    "节点健康",
 			Prompt:      "请重点分析当前集群中的高负载节点、不可调度节点或节点压力问题，说明影响范围和处理优先级。",
+			Source:      "system",
 		},
 	}
 }
@@ -323,6 +341,67 @@ func (h *handler) collectAIDiagnosisEvidence(
 				Target:    target,
 			},
 		})
+	}
+
+	if h.auditStore != nil {
+		auditResult, err := h.auditStore.List(ctx, store.AuditLogFilter{
+			ClusterID: bundle.Status.ClusterID,
+			Page:      1,
+			PageSize:  3,
+		})
+		if err == nil {
+			for _, entry := range auditResult.Items {
+				score := 1
+				if entry.Status == store.AuditStatusFailed {
+					score = 2
+				}
+				candidates = append(candidates, scoredAIDiagnosisEvidence{
+					Score: score,
+					Evidence: aiDiagnosisEvidence{
+						ID:        "audit-" + entry.ID,
+						Type:      "audit",
+						Severity:  severityLabelFromScore(score),
+						Title:     "最近操作审计",
+						Summary:   fmt.Sprintf("%s %s/%s，结果：%s。%s", entry.Action, entry.ResourceType, coalesceString(entry.ResourceName, "--"), entry.Status, entry.Message),
+						Timestamp: entry.CreatedAt.Format(time.RFC3339),
+					},
+				})
+			}
+		}
+	}
+
+	if h.aiMemoryStore != nil {
+		memoryItems, err := h.aiMemoryStore.List(ctx, store.AIMemoryFilter{
+			ClusterID: bundle.Status.ClusterID,
+			Limit:     3,
+		})
+		if err == nil {
+			for _, item := range memoryItems {
+				var target *aiDiagnosisTargetRef
+				if strings.TrimSpace(item.ResourceKind) != "" && strings.TrimSpace(item.ResourceName) != "" {
+					target = &aiDiagnosisTargetRef{
+						Kind:      item.ResourceKind,
+						Scope:     item.ResourceScope,
+						Namespace: item.ResourceNamespace,
+						Name:      item.ResourceName,
+						Label:     buildMemoryTargetLabel(item),
+						Route:     buildMemoryTargetRoute(item),
+					}
+				}
+				candidates = append(candidates, scoredAIDiagnosisEvidence{
+					Score: 1,
+					Evidence: aiDiagnosisEvidence{
+						ID:        "memory-" + item.ID,
+						Type:      "history",
+						Severity:  "low",
+						Title:     item.Title,
+						Summary:   item.Summary,
+						Timestamp: item.UpdatedAt.Format(time.RFC3339),
+						Target:    target,
+					},
+				})
+			}
+		}
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -559,16 +638,19 @@ func buildAIDiagnosisActions(
 			action.Description = "优先检查该 Pod 的事件、日志和资源使用情况，确认是否存在调度、探针或配置异常。"
 			action.CommandHint = fmt.Sprintf("kubectl -n %s describe pod %s", item.Target.Namespace, item.Target.Name)
 			action.Risk = "若直接删除或重启 Pod，需先确认其是否由上层工作负载控制。"
+			action.Operation = buildAIDiagnosisOperation(item.Target)
 		case "node":
 			action.Title = "查看节点详情"
 			action.Description = "确认该节点的调度状态、资源压力和受影响 Pods，必要时评估是否需要维护或扩容。"
 			action.CommandHint = fmt.Sprintf("kubectl describe node %s", item.Target.Name)
 			action.Risk = "节点操作可能影响该节点上的所有工作负载，应先评估影响范围。"
+			action.Operation = buildAIDiagnosisOperation(item.Target)
 		case "workload":
 			action.Title = "查看工作负载详情"
 			action.Description = "优先检查副本、滚动发布状态、关联 Pods 与事件，确认 Ready/Desired 不一致的原因。"
 			action.CommandHint = buildWorkloadInspectCommand(item.Target)
 			action.Risk = "重启、扩缩容或删除工作负载前，需要确认业务窗口和副本冗余。"
+			action.Operation = buildAIDiagnosisOperation(item.Target)
 		default:
 			continue
 		}
@@ -589,6 +671,66 @@ func buildAIDiagnosisActions(
 	}
 
 	return actions
+}
+
+func buildAIDiagnosisOperation(target *aiDiagnosisTargetRef) *aiDiagnosisOperation {
+	if target == nil {
+		return nil
+	}
+
+	switch target.Kind {
+	case "pod":
+		return &aiDiagnosisOperation{
+			Label:          "重启 Pod",
+			Method:         http.MethodPost,
+			Endpoint:       fmt.Sprintf("/api/pods/%s/%s/restart", target.Namespace, target.Name),
+			ConfirmText:    fmt.Sprintf("确认重启 Pod %s 吗？", target.Label),
+			SuccessMessage: "Pod 已重启",
+		}
+	case "node":
+		return &aiDiagnosisOperation{
+			Label:          "开启维护模式",
+			Method:         http.MethodPost,
+			Endpoint:       fmt.Sprintf("/api/nodes/%s/maintenance/enable", target.Name),
+			ConfirmText:    fmt.Sprintf("确认将节点 %s 设为维护模式吗？", target.Label),
+			SuccessMessage: "节点已进入维护模式",
+		}
+	case "workload":
+		scope := pluralWorkloadScope(target.Scope)
+		if scope == "" || target.Namespace == "" || target.Name == "" {
+			return nil
+		}
+		return &aiDiagnosisOperation{
+			Label:          "重启工作负载",
+			Method:         http.MethodPost,
+			Endpoint:       fmt.Sprintf("/api/%s/%s/%s/restart", scope, target.Namespace, target.Name),
+			ConfirmText:    fmt.Sprintf("确认重启工作负载 %s 吗？", target.Label),
+			SuccessMessage: "工作负载已触发重启",
+		}
+	default:
+		return nil
+	}
+}
+
+func buildMemoryTargetLabel(item store.AIMemory) string {
+	if strings.TrimSpace(item.ResourceNamespace) != "" {
+		return item.ResourceNamespace + "/" + item.ResourceName
+	}
+	return item.ResourceName
+}
+
+func buildMemoryTargetRoute(item store.AIMemory) string {
+	switch strings.TrimSpace(item.ResourceKind) {
+	case "node":
+		return "/nodes?name=" + item.ResourceName
+	case "pod":
+		return "/pods?namespace=" + item.ResourceNamespace + "&name=" + item.ResourceName
+	case "workload":
+		scope := singularWorkloadScope(item.ResourceScope)
+		return "/workloads?type=" + scope + "&namespace=" + item.ResourceNamespace + "&name=" + item.ResourceName
+	default:
+		return ""
+	}
 }
 
 func buildAIDiagnosisRiskLevel(
@@ -928,6 +1070,21 @@ func singularWorkloadScope(scope string) string {
 		return "daemonset"
 	case "cronjobs":
 		return "cronjob"
+	default:
+		return strings.TrimSpace(scope)
+	}
+}
+
+func pluralWorkloadScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "deployment", "deployments":
+		return "deployments"
+	case "statefulset", "statefulsets":
+		return "statefulsets"
+	case "daemonset", "daemonsets":
+		return "daemonsets"
+	case "cronjob", "cronjobs":
+		return "cronjobs"
 	default:
 		return strings.TrimSpace(scope)
 	}

@@ -1386,48 +1386,53 @@ export default function AIDiagnosis() {
           <header
             className={`sticky top-0 z-40 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}
           >
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <div className="grid gap-3 xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:items-center">
+              <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
                 >
                   <Menu size={18} />
                 </button>
-                <h1 className="text-xl font-bold">AI 诊断</h1>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                  集群 {clusterStatus?.clusterName || welcomeClusterName}
-                </span>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                  {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
-                </span>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                  更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
-                </span>
-                {latestInspection && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('issues')}
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}
-                  >
-                    最近巡检 {getRiskMeta(latestInspection.riskLevel, theme).label}
-                  </button>
-                )}
+                <h1 className="shrink-0 text-xl font-bold">AI 诊断</h1>
               </div>
 
-              <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
+              <div className="min-w-0 overflow-x-auto xl:justify-self-stretch">
+                <div className="flex w-max items-center gap-2 pr-2">
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    集群 {clusterStatus?.clusterName || welcomeClusterName}
+                  </span>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                  </span>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                  </span>
+                  {latestInspection && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('issues')}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}
+                    >
+                      最近巡检 {getRiskMeta(latestInspection.riskLevel, theme).label}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2 xl:justify-self-end">
                 <ClusterSelector
                   theme={theme}
                   clusters={enabledClusters}
                   value={selectedClusterId}
                   loading={clusterLoading}
                   onChange={setSelectedClusterId}
-                  className="w-full sm:w-72 xl:w-72"
+                  className="w-72 shrink-0"
                 />
                 <button
                   onClick={() => void handleRunInspection()}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                   disabled={runningInspection}
                 >
                   <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
@@ -1435,21 +1440,21 @@ export default function AIDiagnosis() {
                 </button>
                 <button
                   onClick={() => void refreshClusterStatus()}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                 >
                   <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
                   刷新诊断上下文
                 </button>
                 <button
                   onClick={handleNewConversation}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
                 >
                   <PlusCircle size={15} />
                   新建会话
                 </button>
                 <button
                   onClick={toggleTheme}
-                  className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                  className={`shrink-0 rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
                   aria-label="切换主题"
                 >
                   {isDark ? <Sun size={20} /> : <Moon size={20} />}

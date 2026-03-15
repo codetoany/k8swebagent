@@ -1382,26 +1382,41 @@ export default function AIDiagnosis() {
           </div>
         </aside>
 
-        <main className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-screen">
-          <header className={`shrink-0 border-b px-4 py-4 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <button onClick={() => setSidebarOpen(true)} className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
+        <main className="flex-1 min-w-0">
+          <header
+            className={`sticky top-0 z-40 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                >
                   <Menu size={18} />
                 </button>
-                <div className={`hidden rounded-xl p-2 sm:block ${isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
-                  <Brain size={22} />
-                </div>
-                <div className="min-w-0">
-                  <h1 className="truncate text-2xl font-bold">AI 诊断助手</h1>
-                  <p className={`hidden text-sm xl:block ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    结合真实集群状态、大模型推理与证据链，输出诊断结论、风险判断和下一步建议。
-                  </p>
-                </div>
+                <h1 className="text-xl font-bold">AI 诊断</h1>
               </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={toggleTheme}
+                  className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                  aria-label="切换主题"
+                >
+                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
+                </button>
+                <NotificationCenter isDark={isDark} />
+              </div>
+            </div>
+          </header>
 
-              <div className="flex flex-col gap-3 xl:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="p-4 md:p-6">
+            <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="mb-1 text-xl font-bold">AI 诊断助手</h2>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  结合当前集群上下文、主动巡检与证据链，输出诊断结论、风险判断和下一步建议。
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     集群 {clusterStatus?.clusterName || welcomeClusterName}
                   </span>
@@ -1410,43 +1425,47 @@ export default function AIDiagnosis() {
                     {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
                   </span>
                   <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
-                    {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                    更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
                   </span>
                 </div>
+              </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedClusterId} loading={clusterLoading} onChange={setSelectedClusterId} />
-                  <button
-                    onClick={() => void handleRunInspection()}
-                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    disabled={runningInspection}
-                  >
-                    <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
-                    {runningInspection ? '巡检中...' : '运行巡检'}
-                  </button>
-                  <button
-                    onClick={() => void refreshClusterStatus()}
-                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                  >
-                    <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
-                    刷新诊断上下文
-                  </button>
-                  <button onClick={handleNewConversation} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                    <PlusCircle size={15} />
-                    新建会话
-                  </button>
-                  <button onClick={toggleTheme} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} aria-label="切换主题">
-                    {isDark ? <Sun size={18} /> : <Moon size={18} />}
-                  </button>
-                  <NotificationCenter isDark={isDark} />
-                </div>
+              <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto">
+                <ClusterSelector
+                  theme={theme}
+                  clusters={enabledClusters}
+                  value={selectedClusterId}
+                  loading={clusterLoading}
+                  onChange={setSelectedClusterId}
+                  className="w-full sm:w-72 xl:w-72"
+                />
+                <button
+                  onClick={() => void handleRunInspection()}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  disabled={runningInspection}
+                >
+                  <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
+                  {runningInspection ? '巡检中...' : '运行巡检'}
+                </button>
+                <button
+                  onClick={() => void refreshClusterStatus()}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
+                  刷新诊断上下文
+                </button>
+                <button
+                  onClick={handleNewConversation}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <PlusCircle size={15} />
+                  新建会话
+                </button>
               </div>
             </div>
-          </header>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
             {latestInspection && (
-              <div className={`mb-4 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+              <div className={`mb-4 rounded-xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1458,7 +1477,7 @@ export default function AIDiagnosis() {
                         {formatConversationTime(latestInspection.generatedAt)}
                       </span>
                     </div>
-                    <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
+                    <p className={`mt-1 truncate text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -1482,7 +1501,7 @@ export default function AIDiagnosis() {
               </div>
             )}
 
-            <section className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+            <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
@@ -1511,12 +1530,12 @@ export default function AIDiagnosis() {
               </div>
 
               {loading ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[minmax(0,2fr)_360px]">
                   <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                   <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 </div>
               ) : activeTab === 'chat' ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[minmax(0,2fr)_360px]">
                   <div className={`flex min-h-0 flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className={`shrink-0 border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1727,7 +1746,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'issues' ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.6fr,1fr]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.6fr,1fr]">
                   <div className="min-h-0 space-y-4 overflow-y-auto">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-center gap-3">
@@ -1873,7 +1892,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'memory' ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.5fr,1fr]">
                   <div className="min-h-0 space-y-4 overflow-y-auto">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-center gap-3">
@@ -1936,7 +1955,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : activeTab === 'templates' ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.5fr,1fr]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.5fr,1fr]">
                   <div className="min-h-0 space-y-4 overflow-y-auto">
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">模板中心</div>
@@ -2060,7 +2079,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               ) : (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[1.3fr,1fr]">
+                <div className="grid min-h-[560px] gap-6 p-5 lg:h-[calc(100vh-360px)] lg:max-h-[760px] xl:grid-cols-[1.3fr,1fr]">
                   <div className="min-h-0 space-y-4 overflow-y-auto">
                     {conversations.length === 0 ? (
                       <div className={`rounded-xl border border-dashed p-8 text-center ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>

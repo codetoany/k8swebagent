@@ -8,7 +8,7 @@ import { useClusterContext } from '@/contexts/clusterContext';
 import { useThemeContext } from '@/contexts/themeContext';
 import ClusterSelector from '@/components/ClusterSelector';
 import NotificationCenter from '@/components/NotificationCenter';
-import { dashboardAPI } from '@/lib/api';
+import { aiDiagnosisAPI, dashboardAPI } from '@/lib/api';
 import { ApiError } from '@/lib/apiClient';
 import apiClient from '@/lib/apiClient';
 
@@ -18,6 +18,18 @@ type Overview = { totalNodes: number; onlineNodes: number; offlineNodes: number;
 type ResourceUsagePoint = { time: string; cpuUsage: number | null; memoryUsage: number | null; diskUsage: number | null };
 type NamespaceDistribution = { name: string; value: number };
 type DashboardEvent = { id: string; type: string; reason: string; timestamp: string };
+type InspectionIssue = { id: string; title: string; riskLevel: 'low' | 'medium' | 'high' | 'critical'; score: number };
+type InspectionCounts = { total: number; critical: number; high: number; medium: number; low: number };
+type InspectionSummary = {
+  id?: string;
+  clusterId?: string;
+  clusterName?: string;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  summary: string;
+  counts: InspectionCounts;
+  issues: InspectionIssue[];
+  generatedAt: string;
+};
 
 const EMPTY_OVERVIEW: Overview = { totalNodes: 0, onlineNodes: 0, offlineNodes: 0, totalPods: 0, runningPods: 0, failedPods: 0, pausedPods: 0, totalWorkloads: 0, cpuUsage: 0, memoryUsage: 0, diskUsage: 0 };
 
@@ -35,6 +47,7 @@ const Dashboard = () => {
   const [resourceUsageData, setResourceUsageData] = useState<ResourceUsagePoint[]>([]);
   const [namespaceChartData, setNamespaceChartData] = useState<NamespaceDistribution[]>([]);
   const [recentEvents, setRecentEvents] = useState<DashboardEvent[]>([]);
+  const [latestInspection, setLatestInspection] = useState<InspectionSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const currentTheme = isDark ? 'dark' : 'light';
 
@@ -52,15 +65,17 @@ const Dashboard = () => {
       setLoading(true);
       setDashboardError(null);
       try {
-        const [overviewData, namespaceDistribution, recentEventsData] = await Promise.all([
+        const [overviewData, namespaceDistribution, recentEventsData, inspectionData] = await Promise.all([
           apiClient.get<Partial<Overview>>(dashboardAPI.getClusterOverview, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
           apiClient.get<NamespaceDistribution[]>(dashboardAPI.getNamespaceDistribution, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
           apiClient.get<DashboardEvent[]>(dashboardAPI.getRecentEvents, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
+          apiClient.get<InspectionSummary | null>(aiDiagnosisAPI.getLatestInspection, selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined),
         ]);
         if (!active) return;
         setOverview({ ...EMPTY_OVERVIEW, ...overviewData });
         setNamespaceChartData(Array.isArray(namespaceDistribution) ? namespaceDistribution : []);
         setRecentEvents(Array.isArray(recentEventsData) ? recentEventsData : []);
+        setLatestInspection(inspectionData ?? null);
       } catch (error) {
         if (!active) return;
         if (error instanceof ApiError) {
@@ -137,6 +152,30 @@ const Dashboard = () => {
     if (value >= 80) return { wrapper: theme === 'dark' ? 'bg-red-900/30' : 'bg-red-100', icon: 'text-red-500', badge: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' };
     if (value >= 50) return { wrapper: theme === 'dark' ? 'bg-yellow-900/30' : 'bg-yellow-100', icon: 'text-yellow-500', badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' };
     return { wrapper: theme === 'dark' ? 'bg-green-900/30' : 'bg-green-100', icon: 'text-green-500', badge: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' };
+  };
+  const getInspectionRiskAppearance = (riskLevel?: string) => {
+    switch (riskLevel) {
+      case 'critical':
+        return theme === 'dark' ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700';
+      case 'high':
+        return theme === 'dark' ? 'bg-orange-900/30 text-orange-300' : 'bg-orange-100 text-orange-700';
+      case 'medium':
+        return theme === 'dark' ? 'bg-yellow-900/30 text-yellow-300' : 'bg-yellow-100 text-yellow-700';
+      default:
+        return theme === 'dark' ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-700';
+    }
+  };
+  const formatInspectionRiskLabel = (riskLevel?: string) => {
+    switch (riskLevel) {
+      case 'critical':
+        return '严重风险';
+      case 'high':
+        return '高风险';
+      case 'medium':
+        return '中风险';
+      default:
+        return '低风险';
+    }
   };
 
   const displayResourceUsage = useMemo(() => {
@@ -294,6 +333,50 @@ const Dashboard = () => {
                   </div>
                 </motion.div>
               )}
+
+              <motion.div variants={itemVariants} className={`rounded-xl p-4 ${cardShell}`}>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold">AI 巡检摘要</h3>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${latestInspection ? getInspectionRiskAppearance(latestInspection.riskLevel) : theme === 'dark' ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                        {latestInspection ? formatInspectionRiskLabel(latestInspection.riskLevel) : '未巡检'}
+                      </span>
+                    </div>
+                    <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                      {latestInspection?.summary || '当前还没有巡检结果，系统启动后会自动生成，也可以前往 AI 诊断页手动触发。'}
+                    </p>
+                    {!!latestInspection && (
+                      <div className={`mt-2 flex flex-wrap items-center gap-3 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                        <span>最近巡检：{formatAbsoluteTime(latestInspection.generatedAt)}</span>
+                        <span>问题数：{latestInspection.counts.total}</span>
+                        <span>高风险：{latestInspection.counts.critical + latestInspection.counts.high}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate('/ai-diagnosis')}
+                    className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium ${theme === 'dark' ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    进入 AI 诊断
+                  </button>
+                </div>
+
+                {!!latestInspection?.issues?.length && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {latestInspection.issues.slice(0, 3).map((issue) => (
+                      <div
+                        key={issue.id}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium ${getInspectionRiskAppearance(issue.riskLevel)}`}
+                      >
+                        {issue.title}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
 
               <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {metricCards.map((card) => (

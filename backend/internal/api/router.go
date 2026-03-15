@@ -22,19 +22,21 @@ import (
 )
 
 type handler struct {
-	store             *store.SnapshotStore
-	settingsStore     *store.SettingsStore
-	clusterStore      *store.ClusterStore
-	auditStore        *store.AuditStore
-	aiHistoryStore    *store.AIConversationStore
-	k8sManager        *k8s.Manager
-	redisCache        *cache.RedisCache
-	dashboardService  *service.DashboardService
-	nodesService      *service.NodesService
-	podsService       *service.PodsService
-	workloadsService  *service.WorkloadsService
-	namespacesService *service.NamespacesService
-	llmClient         *llmClient
+	store              *store.SnapshotStore
+	settingsStore      *store.SettingsStore
+	clusterStore       *store.ClusterStore
+	auditStore         *store.AuditStore
+	aiHistoryStore     *store.AIConversationStore
+	aiInspectionStore  *store.AIInspectionStore
+	aiInspectionRunner *AIInspectionRunner
+	k8sManager         *k8s.Manager
+	redisCache         *cache.RedisCache
+	dashboardService   *service.DashboardService
+	nodesService       *service.NodesService
+	podsService        *service.PodsService
+	workloadsService   *service.WorkloadsService
+	namespacesService  *service.NamespacesService
+	llmClient          *llmClient
 }
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -55,23 +57,27 @@ func NewRouter(
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
 	aiHistoryStore *store.AIConversationStore,
+	aiInspectionStore *store.AIInspectionStore,
+	aiInspectionRunner *AIInspectionRunner,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
 ) http.Handler {
 	h := &handler{
-		store:             snapshotStore,
-		settingsStore:     settingsStore,
-		clusterStore:      clusterStore,
-		auditStore:        auditStore,
-		aiHistoryStore:    aiHistoryStore,
-		k8sManager:        k8sManager,
-		redisCache:        redisCache,
-		dashboardService:  service.NewDashboardService(snapshotStore, k8sManager),
-		nodesService:      service.NewNodesService(snapshotStore, k8sManager),
-		podsService:       service.NewPodsService(snapshotStore, k8sManager),
-		workloadsService:  service.NewWorkloadsService(snapshotStore, k8sManager),
-		namespacesService: service.NewNamespacesService(snapshotStore, k8sManager),
-		llmClient:         newLLMClient(90 * time.Second),
+		store:              snapshotStore,
+		settingsStore:      settingsStore,
+		clusterStore:       clusterStore,
+		auditStore:         auditStore,
+		aiHistoryStore:     aiHistoryStore,
+		aiInspectionStore:  aiInspectionStore,
+		aiInspectionRunner: aiInspectionRunner,
+		k8sManager:         k8sManager,
+		redisCache:         redisCache,
+		dashboardService:   service.NewDashboardService(snapshotStore, k8sManager),
+		nodesService:       service.NewNodesService(snapshotStore, k8sManager),
+		podsService:        service.NewPodsService(snapshotStore, k8sManager),
+		workloadsService:   service.NewWorkloadsService(snapshotStore, k8sManager),
+		namespacesService:  service.NewNamespacesService(snapshotStore, k8sManager),
+		llmClient:          newLLMClient(90 * time.Second),
 	}
 
 	router := chi.NewRouter()
@@ -173,6 +179,10 @@ func NewRouter(
 		r.Get("/history", h.wrap(h.listAIDiagnosisHistory))
 		r.Get("/history/{id}", h.wrap(h.getAIDiagnosisConversation))
 		r.Delete("/history/{id}", h.wrap(h.deleteAIDiagnosisConversation))
+		r.Get("/inspections", h.wrap(h.listAIInspections))
+		r.Get("/inspections/latest", h.wrap(h.latestAIInspection))
+		r.Post("/inspections/run", h.wrap(h.runAIInspection))
+		r.Get("/risk-summary", h.wrap(h.aiRiskSummary))
 		r.Post("/chat", h.wrap(h.aiDiagnosisChat))
 		r.Post("/chat/stream", h.wrap(h.aiDiagnosisChatStream))
 		r.Get("/node-status", h.wrap(h.aiDiagnosisNodeStatus))

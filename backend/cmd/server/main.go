@@ -60,11 +60,24 @@ func main() {
 		log.Fatalf("failed to initialize ai history storage: %v", err)
 	}
 
+	aiInspectionStore := store.NewAIInspectionStore(pool)
+	if err := aiInspectionStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize ai inspection storage: %v", err)
+	}
+
 	k8sManager := k8s.NewManager(clusterStore, time.Duration(cfg.K8s.RequestTimeoutSeconds)*time.Second)
+	aiInspectionRunner := api.NewAIInspectionRunner(aiInspectionStore, clusterStore, auditStore, snapshotStore, k8sManager)
+
+	startAIInspectionScheduler(
+		ctx,
+		aiInspectionRunner,
+		time.Duration(cfg.AI.InspectionIntervalSeconds)*time.Second,
+		time.Duration(cfg.AI.InspectionStartupDelaySeconds)*time.Second,
+	)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, k8sManager, redisCache),
+		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiInspectionStore, aiInspectionRunner, k8sManager, redisCache),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -83,4 +96,37 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server exited unexpectedly: %v", err)
 	}
+}
+
+func startAIInspectionScheduler(ctx context.Context, runner *api.AIInspectionRunner, interval time.Duration, startupDelay time.Duration) {
+	if runner == nil || interval <= 0 {
+		log.Printf("ai inspection scheduler disabled")
+		return
+	}
+
+	go func() {
+		if startupDelay > 0 {
+			select {
+			case <-time.After(startupDelay):
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		log.Printf("running initial ai inspection sweep")
+		runner.RunEnabledClusters(ctx, store.AIInspectionTriggerScheduled)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				log.Printf("running scheduled ai inspection sweep")
+				runner.RunEnabledClusters(ctx, store.AIInspectionTriggerScheduled)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }

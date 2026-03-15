@@ -35,11 +35,17 @@ type K8sConfig struct {
 	Bootstrap             K8sBootstrapConfig
 }
 
+type AIConfig struct {
+	InspectionIntervalSeconds     int
+	InspectionStartupDelaySeconds int
+}
+
 type Config struct {
 	Port  int
 	PG    PGConfig
 	Redis RedisConfig
 	K8s   K8sConfig
+	AI    AIConfig
 }
 
 func Load() Config {
@@ -69,6 +75,10 @@ func Load() Config {
 				CAData:                toString(os.Getenv("K8S_BOOTSTRAP_CA_DATA"), ""),
 				InsecureSkipTLSVerify: toBool(os.Getenv("K8S_BOOTSTRAP_INSECURE_SKIP_TLS_VERIFY"), false),
 			},
+		},
+		AI: AIConfig{
+			InspectionIntervalSeconds:     toInt(os.Getenv("AI_INSPECTION_INTERVAL_SECONDS"), 600),
+			InspectionStartupDelaySeconds: toInt(os.Getenv("AI_INSPECTION_STARTUP_DELAY_SECONDS"), 15),
 		},
 	}
 }

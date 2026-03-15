@@ -114,6 +114,32 @@ interface AIConversation {
   messages?: AIConversationMessage[];
 }
 
+interface AIInspectionIssue {
+  id: string;
+  title: string;
+  riskLevel: RiskLevel;
+  score: number;
+}
+
+interface AIInspectionCounts {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+interface AIInspectionSummary {
+  id?: string;
+  clusterId?: string;
+  clusterName?: string;
+  riskLevel: RiskLevel;
+  summary: string;
+  counts: AIInspectionCounts;
+  issues: AIInspectionIssue[];
+  generatedAt: string;
+}
+
 interface AIClusterOverview {
   totalNodes: number;
   onlineNodes: number;
@@ -600,7 +626,9 @@ export default function AIDiagnosis() {
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [messages, setMessages] = useState<AIConversationMessage[]>(createWelcomeMessage('默认诊断上下文'));
   const [clusterStatus, setClusterStatus] = useState<AIClusterStatus | null>(null);
+  const [latestInspection, setLatestInspection] = useState<AIInspectionSummary | null>(null);
   const [inputMessage, setInputMessage] = useState('');
+  const [runningInspection, setRunningInspection] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -642,9 +670,10 @@ export default function AIDiagnosis() {
       setMessages(createWelcomeMessage(selectedCluster?.name || '默认诊断上下文'));
 
       try {
-        const [history, status] = await Promise.all([
+        const [history, status, inspection] = await Promise.all([
           apiClient.get<AIConversation[]>(aiDiagnosisAPI.getDiagnosisHistory, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
           apiClient.get<AIClusterStatus>(aiDiagnosisAPI.getNodeStatus, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
+          apiClient.get<AIInspectionSummary | null>(aiDiagnosisAPI.getLatestInspection, selectedClusterId ? { clusterId: selectedClusterId } : undefined),
         ]);
 
         if (cancelled) {
@@ -653,6 +682,7 @@ export default function AIDiagnosis() {
 
         setConversations(history);
         setClusterStatus(status);
+        setLatestInspection(inspection ?? null);
         setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
       } finally {
         if (!cancelled) {
@@ -727,16 +757,37 @@ export default function AIDiagnosis() {
   const refreshClusterStatus = async () => {
     setRefreshingCluster(true);
     try {
-      const status = await apiClient.get<AIClusterStatus>(
-        aiDiagnosisAPI.getNodeStatus,
-        selectedClusterId ? { clusterId: selectedClusterId } : undefined,
-      );
+      const [status, inspection] = await Promise.all([
+        apiClient.get<AIClusterStatus>(
+          aiDiagnosisAPI.getNodeStatus,
+          selectedClusterId ? { clusterId: selectedClusterId } : undefined,
+        ),
+        apiClient.get<AIInspectionSummary | null>(
+          aiDiagnosisAPI.getLatestInspection,
+          selectedClusterId ? { clusterId: selectedClusterId } : undefined,
+        ),
+      ]);
       setClusterStatus(status);
+      setLatestInspection(inspection ?? null);
       if (!currentConversationId) {
         setMessages(createWelcomeMessage(status.clusterName || welcomeClusterName));
       }
     } finally {
       setRefreshingCluster(false);
+    }
+  };
+
+  const handleRunInspection = async () => {
+    setRunningInspection(true);
+    try {
+      const result = await apiClient.post<AIInspectionSummary>(aiDiagnosisAPI.runInspection, {
+        clusterId: selectedClusterId || undefined,
+      });
+      setLatestInspection(result);
+      await refreshClusterStatus();
+      toast.success('AI 主动巡检已完成');
+    } finally {
+      setRunningInspection(false);
     }
   };
 
@@ -952,6 +1003,14 @@ export default function AIDiagnosis() {
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedClusterId} loading={clusterLoading} onChange={setSelectedClusterId} />
                   <button
+                    onClick={() => void handleRunInspection()}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                    disabled={runningInspection}
+                  >
+                    <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
+                    {runningInspection ? '巡检中...' : '运行巡检'}
+                  </button>
+                  <button
                     onClick={() => void refreshClusterStatus()}
                     className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                   >
@@ -972,6 +1031,36 @@ export default function AIDiagnosis() {
           </header>
 
           <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
+            {latestInspection && (
+              <div className={`mb-4 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">最近巡检</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
+                        {getRiskMeta(latestInspection.riskLevel, theme).label}
+                      </span>
+                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {formatConversationTime(latestInspection.generatedAt)}
+                      </span>
+                    </div>
+                    <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {latestInspection.issues.slice(0, 2).map((issue) => (
+                      <span
+                        key={issue.id}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
+                      >
+                        {issue.title}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <section className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 <button

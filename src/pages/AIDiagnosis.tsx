@@ -1386,8 +1386,8 @@ export default function AIDiagnosis() {
           <header
             className={`sticky top-0 z-40 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
@@ -1395,23 +1395,6 @@ export default function AIDiagnosis() {
                   <Menu size={18} />
                 </button>
                 <h1 className="text-xl font-bold">AI 诊断</h1>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={toggleTheme}
-                  className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
-                  aria-label="切换主题"
-                >
-                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
-                </button>
-                <NotificationCenter isDark={isDark} />
-              </div>
-            </div>
-          </header>
-
-          <div className="p-4 md:p-6">
-            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
                 <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                   集群 {clusterStatus?.clusterName || welcomeClusterName}
                 </span>
@@ -1433,7 +1416,7 @@ export default function AIDiagnosis() {
                 )}
               </div>
 
-              <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto">
+              <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
                 <ClusterSelector
                   theme={theme}
                   clusters={enabledClusters}
@@ -1464,8 +1447,19 @@ export default function AIDiagnosis() {
                   <PlusCircle size={15} />
                   新建会话
                 </button>
+                <button
+                  onClick={toggleTheme}
+                  className={`rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                  aria-label="切换主题"
+                >
+                  {isDark ? <Sun size={20} /> : <Moon size={20} />}
+                </button>
+                <NotificationCenter isDark={isDark} />
               </div>
             </div>
+          </header>
+
+          <div className="p-4 md:p-6">
 
             <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>

@@ -1,367 +1,386 @@
-﻿# K8s Agent vs Kuboard Gap Analysis
+﻿# K8s Agent 与 Kuboard 功能差距分析
 
-## 1. Current project status
+## 1. 当前项目现状
 
-The current project already has a usable management-console baseline:
+当前项目已经具备一个可用的 Kubernetes 管理平台基础能力，主要包括：
 
-- Frontend pages: dashboard, nodes, pods, workloads, settings, AI diagnosis
-- Backend stack: Go + PostgreSQL + Redis + Docker
-- Real Kubernetes connection: multi-cluster config, token/kubeconfig/in-cluster access
-- Read capabilities: nodes, pods, workloads, namespaces, dashboard aggregates, recent events
-- Write capabilities already online:
-  - node cordon / uncordon
-  - node maintenance taint enable / disable
-  - pod restart / delete / logs
-  - deployment and statefulset scale
-  - deployment / statefulset / daemonset restart
-  - deployment pause / resume
-  - workload delete
-- Supporting modules:
-  - audit logs
-  - notification center
-  - AI diagnosis with external LLM
-  - cluster configuration UI
+- 前端页面：
+  - 仪表盘
+  - 节点
+  - Pods
+  - 工作负载
+  - 设置
+  - AI 诊断
+- 后端技术栈：
+  - Go
+  - PostgreSQL
+  - Redis
+  - Docker
+- 真实集群接入能力：
+  - 多集群配置
+  - Token / kubeconfig / in-cluster 三种接入方式
+- 已完成的只读能力：
+  - 节点
+  - Pods
+  - 工作负载
+  - 命名空间
+  - 仪表盘聚合数据
+  - 最近事件
+- 已完成的写操作能力：
+  - 节点 `cordon / uncordon`
+  - 节点维护污点开关
+  - Pod 重启 / 删除 / 日志查看
+  - Deployment / StatefulSet 扩缩容
+  - Deployment / StatefulSet / DaemonSet 重启
+  - Deployment 暂停 / 恢复
+  - 工作负载删除
+- 已完成的配套能力：
+  - 审计日志
+  - 通知中心
+  - AI 诊断
+  - 集群配置管理界面
 
-Key implementation references:
+当前实现的关键代码位置：
 
-- Frontend routes: `src/App.tsx`
-- API definitions: `src/lib/api.ts`
-- Backend routes: `backend/internal/api/router.go`
-- Kubernetes services:
+- 前端路由：`src/App.tsx`
+- 前端接口定义：`src/lib/api.ts`
+- 后端路由：`backend/internal/api/router.go`
+- Kubernetes 资源服务：
   - `backend/internal/service/nodes.go`
   - `backend/internal/service/pods.go`
   - `backend/internal/service/workloads.go`
   - `backend/internal/service/dashboard.go`
-- Settings and audits:
+- 设置与审计：
   - `backend/internal/store/settings.go`
   - `backend/internal/store/audits.go`
   - `src/pages/Settings.tsx`
 
-## 2. Kuboard-like capabilities already covered
+## 2. 对标 Kuboard 已经具备的能力
 
-Compared with Kuboard's common management-console baseline, the current project already covers these areas:
+和 Kuboard 常见的基础能力相比，当前项目已经覆盖了以下部分：
 
-### 2.1 Cluster access and cluster switching
+### 2.1 集群接入与切换
 
-- multiple clusters
-- default cluster
-- token / kubeconfig / in-cluster connection
-- connection testing
-- resource-side cluster switching
+- 多集群管理
+- 默认集群
+- Token / kubeconfig / in-cluster 接入
+- 集群连接测试
+- 资源视角的集群切换
 
-### 2.2 Core resource browsing
+### 2.2 核心资源浏览
 
-- dashboard overview
-- nodes
-- pods
-- workloads:
-  - deployments
-  - statefulsets
-  - daemonsets
-  - cronjobs
-- namespaces
+- 仪表盘概览
+- 节点
+- Pods
+- 工作负载：
+  - Deployment
+  - StatefulSet
+  - DaemonSet
+  - CronJob
+- 命名空间
 
-### 2.3 Basic operational actions
+### 2.3 基础运维操作
 
-- pod delete / restart / logs
-- workload scale / restart / pause / resume / delete
-- node cordon / uncordon / maintenance taint
+- Pod 删除 / 重启 / 日志查看
+- 工作负载扩缩容 / 重启 / 暂停 / 恢复 / 删除
+- 节点禁止调度 / 恢复调度 / 维护污点开关
 
-### 2.4 Platform supporting capabilities
+### 2.4 平台配套能力
 
-- audit logs with filters and pagination
-- notification center
-- AI diagnosis
-- persistent settings and AI model config
+- 审计日志筛选与分页
+- 通知中心
+- AI 诊断
+- 设置持久化
+- AI 模型配置
 
-## 3. Major gaps compared with Kuboard
+## 3. 与 Kuboard 的主要差距
 
-These are the most important feature gaps if the goal is to move closer to Kuboard as a practical cluster operations platform.
+如果目标是让当前项目逐步接近 Kuboard 这类成熟的集群运维平台，当前最重要的差距主要在下面几块。
 
-### P0: resource coverage is still narrow
+### P0：资源类型覆盖还不够
 
-Current project lacks management pages and APIs for many day-to-day Kubernetes objects:
+当前项目还缺少很多日常高频对象的管理能力，例如：
 
-- services
-- ingresses
-- configmaps
-- secrets
-- persistentvolumes
-- persistentvolumeclaims
-- storageclasses
-- jobs
-- replicasets
-- events as a first-class page
+- Service
+- Ingress
+- ConfigMap
+- Secret
+- PersistentVolume
+- PersistentVolumeClaim
+- StorageClass
+- Job
+- ReplicaSet
+- 事件页（Event）作为独立模块
 
-Impact:
+影响：
 
-- operations still need `kubectl` for many common tasks
-- troubleshooting flow is broken across pages
-- storage and traffic management are not visualized
+- 很多常见运维动作仍然要切回 `kubectl`
+- 故障排查链路不完整
+- 存储和流量入口管理还没有可视化
 
-Recommended next step:
+建议下一步：
 
-1. add `Service / Ingress / ConfigMap / Secret`
-2. add `PVC / PV / StorageClass`
-3. add `Event` page and event timeline
+1. 先补 `Service / Ingress / ConfigMap / Secret`
+2. 再补 `PVC / PV / StorageClass`
+3. 最后补独立的 `Event` 页面和事件时间线
 
-### P0: monitoring is still snapshot-style, not real observability
+### P0：监控还是概览型，不是真正的可观测性
 
-Current dashboard is useful, but it is still closer to an operations overview than a monitoring platform:
+当前仪表盘已经可用，但更像“运行概览”，还不是完整监控体系：
 
-- no Prometheus integration
-- no real historical metrics retention
-- no query-based charts
-- no alert rules
-- no alert silence / ack flow
+- 没有 Prometheus 集成
+- 没有真实的历史指标存储
+- 没有按查询维度的图表能力
+- 没有告警规则
+- 没有告警确认、静默等流程
 
-Impact:
+影响：
 
-- dashboard cannot replace mature monitoring
-- "today / week / month" is not enough for production troubleshooting
-- AI diagnosis has limited historical context
+- 当前仪表盘还不能替代成熟监控系统
+- “今日 / 本周 / 本月” 还不够支撑生产排障
+- AI 诊断拿到的历史上下文仍然不足
 
-Recommended next step:
+建议下一步：
 
-1. integrate Prometheus or VictoriaMetrics as the metrics source
-2. add namespace / workload / pod metric drill-down
-3. add alert rules and notification routing
+1. 接入 Prometheus 或 VictoriaMetrics
+2. 增加 namespace / workload / pod 级指标下钻
+3. 增加告警规则与通知通道
 
-### P0: logging is only per-pod, not aggregated logging
+### P0：日志仍然是单 Pod 视角，不是聚合日志
 
-Current project supports pod log reading, but not a real logging system:
+当前项目支持查看 Pod 日志，但还不是完整日志平台：
 
-- no log aggregation backend
-- no cross-pod / cross-namespace search
-- no label-based log query
-- no log retention strategy
+- 没有日志聚合后端
+- 没有跨 Pod / 跨命名空间搜索
+- 没有基于标签的日志筛选
+- 没有日志保留策略
 
-Impact:
+影响：
 
-- production troubleshooting still depends on external tooling
-- AI cannot correlate cluster-wide log evidence
+- 生产排障仍要依赖外部日志系统
+- AI 诊断无法结合全局日志做证据关联
 
-Recommended next step:
+建议下一步：
 
-1. integrate Loki or Elasticsearch-compatible logging
-2. add log search page
-3. add workload / namespace / pod filters
+1. 接入 Loki 或兼容 Elasticsearch 的日志系统
+2. 增加日志检索页面
+3. 支持 workload / namespace / pod 多维过滤
 
-### P0: no user, role, or permission system inside the platform
+### P0：缺少平台内的用户、角色、权限体系
 
-Current project has a simplified auth state, but it is not a real multi-user management platform:
+当前项目虽然有认证状态，但还不是一套真正的多用户平台：
 
-- no user management
-- no role model
-- no namespace-scoped authorization
-- no per-cluster permissions
-- audit actor is still simplistic
+- 没有用户管理
+- 没有角色模型
+- 没有命名空间级权限
+- 没有集群级权限范围
+- 审计中的操作者身份还比较简单
 
-Impact:
+影响：
 
-- cannot safely onboard multiple operators
-- cannot deliver as a proper team platform
-- hard to control risky actions
+- 不能安全地让多人共同使用
+- 不适合直接作为团队平台交付
+- 高风险操作缺少权限边界
 
-Recommended next step:
+建议下一步：
 
-1. add platform users
-2. add roles and permission matrix
-3. add cluster / namespace scoping
-4. bind audit logs to real user identity
+1. 增加平台用户
+2. 增加角色与权限矩阵
+3. 增加集群 / 命名空间粒度授权
+4. 审计日志绑定真实用户身份
 
-### P1: no YAML-centric operations flow
+### P1：缺少 YAML 视角的运维能力
 
-Kuboard-style users often expect object inspection and adjustment around manifests:
+Kuboard 用户通常会希望直接围绕 YAML 做对象查看和调整：
 
-- view YAML
-- compare YAML
-- edit YAML
-- apply / patch from UI
+- 查看 YAML
+- 比较 YAML
+- 编辑 YAML
+- 在 UI 中 apply / patch
 
-Current project does not provide this workflow.
+当前项目还没有这条工作流。
 
-Impact:
+影响：
 
-- advanced troubleshooting still leaves the UI
-- object mutation paths are incomplete
+- 复杂排障仍然要离开平台
+- 对象修改能力还不完整
 
-Recommended next step:
+建议下一步：
 
-1. add read-only YAML viewer first
-2. then add safe patch / edit mode with confirmation and audit
+1. 先做只读 YAML 查看器
+2. 再做带确认和审计的安全编辑 / patch
 
-### P1: no terminal / exec capability
+### P1：缺少终端 / Exec 能力
 
-The platform currently has no browser-side terminal features:
+当前平台还没有浏览器内终端能力：
 
-- no pod exec
-- no shell terminal
-- no file browser
+- 没有 Pod Exec
+- 没有容器终端
+- 没有文件浏览能力
 
-Impact:
+影响：
 
-- many debugging workflows still require external terminal access
+- 很多调试动作仍然必须回到终端
 
-Recommended next step:
+建议下一步：
 
-1. add pod exec terminal
-2. restrict by RBAC and namespace permission
-3. add audit for exec session start/stop
+1. 增加 Pod Exec 终端
+2. 按 RBAC 与命名空间权限限制
+3. 增加终端会话审计
 
-### P1: no installation / addon management
+### P1：缺少平台集成 / 套件管理
 
-Kuboard often acts as an operational hub around add-ons:
+Kuboard 很多时候不只是“看资源”，还承担运维入口的角色：
 
-- install or manage monitoring stack
-- install or manage logging stack
-- install or manage ingress / storage dependencies
+- 安装或管理监控套件
+- 安装或管理日志套件
+- 管理 ingress / storage 依赖
 
-Current project has no add-on lifecycle view.
+当前项目还没有这一层。
 
-Impact:
+影响：
 
-- operations remain fragmented
+- 运维链路仍然分散
 
-Recommended next step:
+建议下一步：
 
-1. add "platform integrations" or "addons" module
-2. manage metrics, logging, ingress, storage dependencies from there
+1. 增加“平台集成”或“组件管理”模块
+2. 用于管理监控、日志、入口、存储等依赖
 
-### P1: AI is useful but still isolated
+### P1：AI 诊断还没有深度融入运维流程
 
-Current AI diagnosis is already a differentiator, but compared with a mature operations console it still lacks deeper workflow hooks:
+当前 AI 诊断已经是项目亮点，但和成熟运维平台结合还不够深：
 
-- no action suggestions tied to specific objects
-- no one-click jump from AI result to resource detail
-- no event/log/metric evidence timeline in a single diagnosis result
-- no streaming output
-- no diagnosis templates per scenario
+- 还没有针对具体对象的操作建议
+- 还没有从 AI 结果一键跳转到资源详情
+- 还没有把事件、日志、指标作为同一次诊断结果的证据链
+- 还没有流式输出
+- 还没有场景化诊断模板
 
-Impact:
+影响：
 
-- AI feels like a separate assistant instead of an operations copilot
+- AI 更像独立助手，而不是运维副驾
 
-Recommended next step:
+建议下一步：
 
-1. AI result cards with deep links to node / pod / workload pages
-2. correlate AI with metrics, events, and logs
-3. add streaming response
-4. add scenario templates:
-   - pod pending
-   - pvc pending
-   - crashloop
-   - node pressure
+1. AI 结果卡片增加跳转到节点 / Pod / 工作负载详情
+2. 把 AI 与指标、事件、日志做关联
+3. 增加流式输出
+4. 增加诊断模板：
+   - Pod Pending
+   - PVC Pending
+   - CrashLoopBackOff
+   - Node Pressure
 
-## 4. Recommended implementation roadmap
+## 4. 推荐实施路线
 
-This is the most practical sequence if you want to evolve toward a Kuboard-like product without overloading the project.
+如果目标是“参考 Kuboard，但不把项目做得过重”，我建议按下面顺序推进。
 
-### Stage A: make the console operationally complete
+### 阶段 A：先补齐运维台常用资源
 
-Priority: highest
+优先级：最高
 
-- Service management
-- Ingress management
-- ConfigMap management
-- Secret read-only management
-- Event page
+- Service 管理
+- Ingress 管理
+- ConfigMap 管理
+- Secret 只读管理
+- Event 页面
 - PVC / PV / StorageClass
 
-Result:
+结果：
 
-- the console becomes useful for most daily K8s operations
+- 平台可以覆盖大多数日常 Kubernetes 运维动作
 
-### Stage B: observability foundation
+### 阶段 B：补齐可观测性基础
 
-Priority: highest
+优先级：最高
 
-- Prometheus integration
-- historical metrics
-- workload/pod metric drill-down
-- alert rules
-- notification routing
-- log aggregation integration
+- Prometheus 集成
+- 历史指标
+- workload / pod 指标下钻
+- 告警规则
+- 通知通道
+- 聚合日志集成
 
-Result:
+结果：
 
-- the console starts to compete with real operations platforms
+- 平台开始具备真正的监控与排障价值
 
-### Stage C: platform security and multi-user delivery
+### 阶段 C：补齐平台安全与多人协作
 
-Priority: high
+优先级：高
 
-- users
-- roles
-- permission scopes
-- safer confirmations for destructive actions
-- richer audit dimensions
+- 用户
+- 角色
+- 权限范围
+- 更安全的危险操作确认
+- 更丰富的审计维度
 
-Result:
+结果：
 
-- usable by teams, not just by one operator
+- 平台可以给团队使用，而不是只适合单人运维
 
-### Stage D: advanced operations workflow
+### 阶段 D：补高级运维工作流
 
-Priority: medium
+优先级：中
 
-- YAML viewer/editor
-- pod exec terminal
-- resource jump links
-- addon management
+- YAML 查看 / 编辑
+- Pod Exec 终端
+- 资源跳转联动
+- 平台集成 / 套件管理
 
-Result:
+结果：
 
-- users leave the UI less often
+- 用户离开平台的次数明显减少
 
-### Stage E: AI copilot enhancement
+### 阶段 E：增强 AI 运维副驾能力
 
-Priority: medium
+优先级：中
 
-- streaming answer
-- evidence-backed diagnosis
-- action suggestions
-- diagnosis templates
-- object-aware chat entry points
+- 流式输出
+- 证据化诊断
+- 操作建议
+- 诊断模板
+- 资源入口上的 AI 快捷诊断
 
-Result:
+结果：
 
-- AI becomes tightly integrated with the platform instead of being a side feature
+- AI 从“问答助手”升级为“运维副驾”
 
-## 5. Recommended next build batch
+## 5. 最推荐的下一批建设内容
 
-If the goal is "reference Kuboard and fill the most valuable missing parts", the best next batch is:
+如果要按“参考 Kuboard，优先补最有价值的能力”继续往下做，最合适的下一批是：
 
 1. `Events + Services + Ingress`
 2. `PVC / PV / StorageClass`
-3. `Prometheus integration`
-4. `Aggregated logs`
-5. `RBAC / user / role model`
+3. `Prometheus 历史监控`
+4. `聚合日志`
+5. `平台用户 / 角色 / 权限`
 
-## 6. Features not recommended to rush
+## 6. 不建议现在就急着做的能力
 
-These are feasible, but should not be the immediate next step:
+这些以后可以做，但不建议作为最优先批次：
 
-- full browser file manager
-- broad in-browser shell access without permission model
-- full add-on marketplace
-- large-scale platform plugin system
+- 完整的浏览器文件管理器
+- 没有权限模型支撑的浏览器终端
+- 完整组件市场
+- 大而全的插件体系
 
-Reason:
+原因：
 
-- higher security and maintenance cost
-- weaker short-term value than observability and resource coverage
+- 安全成本和维护成本都更高
+- 短期价值不如“资源覆盖 + 监控 + 日志 + 权限”
 
-## 7. Suggested target state
+## 7. 建议目标形态
 
-A realistic medium-term target is not "clone Kuboard", but:
+中期更合理的目标不是“复刻一个 Kuboard”，而是：
 
-- Kuboard-like operations coverage
-- stronger AI diagnosis and remediation workflow
-- lighter, cleaner, more focused product scope
+- 具备 Kuboard 级别的核心运维能力覆盖
+- 同时保留更强的 AI 诊断与处置联动
+- 产品边界更轻、更聚焦
 
-That would give this project a clearer identity:
+换句话说，这个项目未来更适合的定位是：
 
-- Kuboard-style Kubernetes console
-- plus AI-native troubleshooting
-- plus simpler custom deployment and control
+- 一个 Kuboard 风格的 Kubernetes 管理平台
+- 加上 AI 原生故障诊断能力
+- 再加上更轻量、可定制的部署和控制方式

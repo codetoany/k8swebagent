@@ -1312,27 +1312,30 @@ export default function AIDiagnosis() {
   };
 
   return (
-    <div className={`min-h-screen overflow-x-hidden transition-colors duration-300 lg:h-screen lg:overflow-hidden ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen flex transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
+          <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
           <motion.div
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ duration: 0.28 }}
-            className={`relative h-full w-64 shadow-xl ${isDark ? 'bg-gray-800' : 'bg-white'}`}
+            className={`fixed top-0 left-0 h-full w-64 shadow-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}
           >
-            <div className={`flex items-center justify-between border-b px-4 py-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-              <div className="flex items-center gap-3">
-                <Brain size={20} className="text-blue-500" />
-                <span className="text-lg font-bold">K8s Agent</span>
+            <div className={`flex items-center justify-between border-b p-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center space-x-2">
+                <Server className="text-blue-500" />
+                <h2 className="text-xl font-bold">K8s Agent</h2>
               </div>
-              <button onClick={() => setSidebarOpen(false)} className="rounded-lg p-2">
-                <X size={18} />
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className={`p-1 rounded-md ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              >
+                <X size={20} />
               </button>
             </div>
-            <div className="space-y-2 p-4">
+            <div className="space-y-1 p-4">
               {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
               {navItem(<Server />, '节点', '/nodes')}
               {navItem(<Database />, 'Pods', '/pods')}
@@ -1345,16 +1348,13 @@ export default function AIDiagnosis() {
         </div>
       )}
 
-      <div className="flex h-full min-h-screen">
-        <aside className={`hidden w-64 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-          <div className={`flex h-20 items-center border-b px-6 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className="flex items-center gap-3">
-              <Brain size={22} className="text-blue-500" />
-              <span className="text-2xl font-bold">K8s Agent</span>
-            </div>
+      <div className={`hidden lg:flex lg:flex-col w-64 ${isDark ? 'bg-gray-800' : 'bg-white'} border-r ${isDark ? 'border-gray-700' : 'border-gray-200'} h-screen fixed`}>
+          <div className={`p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} flex items-center space-x-2`}>
+            <Server className="text-blue-500" />
+            <h2 className="text-xl font-bold">K8s Agent</h2>
           </div>
 
-          <div className="flex-1 space-y-2 px-4 py-6">
+          <div className="p-4 space-y-1 flex-1 overflow-y-auto">
             {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
             {navItem(<Server />, '节点', '/nodes')}
             {navItem(<Database />, 'Pods', '/pods')}
@@ -1364,41 +1364,40 @@ export default function AIDiagnosis() {
             {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}
           </div>
 
-          <div className={`border-t px-4 py-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+          <div className={`p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`rounded-full p-2 ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
-                  <User size={18} />
+              <div className="flex items-center space-x-3">
+                <div className={`w-8 h-8 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
+                  <User size={16} />
                 </div>
                 <div>
                   <div className="font-semibold">管理员</div>
                   <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>admin@k8s-agent.com</div>
                 </div>
               </div>
-              <button onClick={handleLogout} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
+              <button onClick={handleLogout} className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
                 <LogOut size={18} />
               </button>
             </div>
           </div>
-        </aside>
+      </div>
 
-        <main className="flex-1 min-w-0">
+      <main className="flex-1 lg:ml-64">
           <header
             className={`sticky top-0 z-40 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}
           >
-            <div className="grid gap-3 xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:items-center">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                  className={`p-2 rounded-md lg:hidden ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
                 >
-                  <Menu size={18} />
+                  <Menu size={20} />
                 </button>
                 <h1 className="shrink-0 text-xl font-bold">AI 诊断</h1>
               </div>
 
-              <div className="min-w-0 overflow-hidden xl:justify-self-stretch">
-                <div className="flex items-center gap-2 whitespace-nowrap">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     集群 {clusterStatus?.clusterName || welcomeClusterName}
                   </span>
@@ -1409,10 +1408,9 @@ export default function AIDiagnosis() {
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     更新时间 {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
                   </span>
-                </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2 xl:justify-self-end">
+              <div className="flex shrink-0 items-center gap-2">
                 <ClusterSelector
                   theme={theme}
                   clusters={enabledClusters}
@@ -1445,7 +1443,7 @@ export default function AIDiagnosis() {
                 </button>
                 <button
                   onClick={toggleTheme}
-                  className={`shrink-0 rounded-full p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+                  className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
                   aria-label="切换主题"
                 >
                   {isDark ? <Sun size={20} /> : <Moon size={20} />}
@@ -2109,7 +2107,6 @@ export default function AIDiagnosis() {
             </section>
           </div>
         </main>
-      </div>
     </div>
   );
 }

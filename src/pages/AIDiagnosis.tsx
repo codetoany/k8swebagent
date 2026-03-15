@@ -1311,7 +1311,7 @@ export default function AIDiagnosis() {
     }
   };
 
-  const diagnosisPanelHeightClass = latestInspection
+  const chatPanelHeightClass = latestInspection
     ? 'h-[340px] md:h-[380px]'
     : 'h-[380px] md:h-[420px]';
 
@@ -1468,8 +1468,8 @@ export default function AIDiagnosis() {
                 </div>
               )}
 
-              <section className={`flex ${diagnosisPanelHeightClass} flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
-              <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <section className="space-y-4">
+              <div className={`flex overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
                   { key: 'issues', label: '问题中心', icon: <ShieldAlert size={16} className="mr-1 inline-block" /> },
@@ -1497,13 +1497,13 @@ export default function AIDiagnosis() {
               </div>
 
               {loading ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
-                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`h-[380px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                  <div className={`h-[380px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 </div>
               ) : activeTab === 'chat' ? (
-                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`flex min-h-0 flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`flex ${chatPanelHeightClass} flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className={`shrink-0 border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1620,7 +1620,7 @@ export default function AIDiagnosis() {
                     </div>
                   </div>
 
-                  <div className="min-h-0 space-y-4 overflow-y-auto">
+                  <div className="space-y-4">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex items-center justify-between">
                         <div className="font-semibold">优先关注节点</div>

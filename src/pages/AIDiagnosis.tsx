@@ -1311,6 +1311,10 @@ export default function AIDiagnosis() {
     }
   };
 
+  const diagnosisPanelHeightClass = latestInspection
+    ? 'h-[calc(100vh-15rem)] min-h-[520px]'
+    : 'h-[calc(100vh-12.5rem)] min-h-[560px]';
+
   return (
     <div className={`h-screen overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
@@ -1426,8 +1430,8 @@ export default function AIDiagnosis() {
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
-            <div className="flex h-full min-h-0 flex-col">
+          <div className="overflow-y-auto px-4 py-4 sm:px-6">
+            <div className="space-y-4">
               {latestInspection && (
                 <div className={`mb-4 shrink-0 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1465,7 +1469,7 @@ export default function AIDiagnosis() {
                 </div>
               )}
 
-              <section className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+              <section className={`flex ${diagnosisPanelHeightClass} flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
               <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },

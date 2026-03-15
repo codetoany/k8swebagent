@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { type KeyboardEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
@@ -1383,25 +1383,22 @@ export default function AIDiagnosis() {
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className={`shrink-0 border-b px-4 py-4 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <header className={`shrink-0 border-b px-4 py-3 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <button onClick={() => setSidebarOpen(true)} className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
                   <Menu size={18} />
                 </button>
                 <div className={`hidden rounded-xl p-2 sm:block ${isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
-                  <Brain size={22} />
+                  <Brain size={20} />
                 </div>
                 <div className="min-w-0">
-                  <h1 className="truncate text-2xl font-bold">AI 诊断助手</h1>
-                  <p className={`hidden text-sm xl:block ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    结合真实集群状态、大模型推理与证据链，输出诊断结论、风险判断和下一步建议。
-                  </p>
+                  <h1 className="truncate text-xl font-bold sm:text-2xl">AI 诊断助手</h1>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 xl:items-end">
-                <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <div className="hidden flex-wrap items-center justify-end gap-2 2xl:flex">
                   <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
                     集群 {clusterStatus?.clusterName || welcomeClusterName}
                   </span>

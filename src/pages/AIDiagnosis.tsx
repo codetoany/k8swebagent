@@ -1,4 +1,4 @@
-﻿import { type KeyboardEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
@@ -1311,12 +1311,8 @@ export default function AIDiagnosis() {
     }
   };
 
-  const chatPanelHeightClass = latestInspection
-    ? 'h-[340px] md:h-[380px]'
-    : 'h-[380px] md:h-[420px]';
-
   return (
-    <div className={`min-h-screen flex transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen overflow-x-hidden transition-colors duration-300 lg:h-screen lg:overflow-hidden ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
@@ -1349,7 +1345,8 @@ export default function AIDiagnosis() {
         </div>
       )}
 
-      <aside className={`hidden h-screen w-72 border-r lg:fixed lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+      <div className="flex h-full min-h-screen">
+        <aside className={`hidden w-72 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
           <div className={`flex h-20 items-center border-b px-6 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center gap-3">
               <Brain size={22} className="text-blue-500" />
@@ -1357,7 +1354,7 @@ export default function AIDiagnosis() {
             </div>
           </div>
 
-          <div className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
+          <div className="flex-1 space-y-2 px-4 py-6">
             {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
             {navItem(<Server />, '节点', '/nodes')}
             {navItem(<Database />, 'Pods', '/pods')}
@@ -1383,93 +1380,110 @@ export default function AIDiagnosis() {
               </button>
             </div>
           </div>
-      </aside>
+        </aside>
 
-      <div className="flex-1 lg:ml-72">
-        <header className={`sticky top-0 z-40 border-b px-4 py-3 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <main className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-screen">
+          <header className={`shrink-0 border-b px-4 py-4 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <button onClick={() => setSidebarOpen(true)} className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
                   <Menu size={18} />
                 </button>
-                <h1 className="truncate text-xl font-bold">AI 诊断</h1>
-                <span className={`hidden rounded-full px-3 py-1 text-xs font-medium md:inline-flex ${connectionMeta.badgeClass}`}>
-                  {connectionMeta.label}
-                </span>
+                <div className={`hidden rounded-xl p-2 sm:block ${isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
+                  <Brain size={22} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-2xl font-bold">AI 诊断助手</h1>
+                  <p className={`hidden text-sm xl:block ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    结合真实集群状态、大模型推理与证据链，输出诊断结论、风险判断和下一步建议。
+                  </p>
+                </div>
               </div>
 
-              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-                <div className="w-full sm:w-auto sm:min-w-[220px] xl:min-w-[240px]">
-                  <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedClusterId} loading={clusterLoading} onChange={setSelectedClusterId} />
+              <div className="flex flex-col gap-3 xl:items-end">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    集群 {clusterStatus?.clusterName || welcomeClusterName}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${connectionMeta.badgeClass}`}>{connectionMeta.label}</span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {clusterStatus?.source === 'live' ? '真实集群' : '快照上下文'}
+                  </span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {clusterStatus ? formatConversationTime(clusterStatus.generatedAt) : '--'}
+                  </span>
                 </div>
-                <button
-                  onClick={() => void handleRunInspection()}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                  disabled={runningInspection}
-                >
-                  <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
-                  {runningInspection ? '巡检中...' : '运行巡检'}
-                </button>
-                <button
-                  onClick={() => void refreshClusterStatus()}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                >
-                  <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
-                  刷新上下文
-                </button>
-                <button onClick={handleNewConversation} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                  <PlusCircle size={15} />
-                  新建会话
-                </button>
-                <button onClick={toggleTheme} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} aria-label="切换主题">
-                  {isDark ? <Sun size={18} /> : <Moon size={18} />}
-                </button>
-                <NotificationCenter isDark={isDark} />
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <ClusterSelector theme={theme} clusters={enabledClusters} value={selectedClusterId} loading={clusterLoading} onChange={setSelectedClusterId} />
+                  <button
+                    onClick={() => void handleRunInspection()}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                    disabled={runningInspection}
+                  >
+                    <ShieldAlert size={15} className={runningInspection ? 'animate-pulse' : ''} />
+                    {runningInspection ? '巡检中...' : '运行巡检'}
+                  </button>
+                  <button
+                    onClick={() => void refreshClusterStatus()}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${isDark ? 'border-gray-600 bg-gray-800 text-white hover:bg-gray-700' : 'border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    <RefreshCw size={15} className={refreshingCluster ? 'animate-spin' : ''} />
+                    刷新诊断上下文
+                  </button>
+                  <button onClick={handleNewConversation} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                    <PlusCircle size={15} />
+                    新建会话
+                  </button>
+                  <button onClick={toggleTheme} className={`rounded-lg p-2 ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} aria-label="切换主题">
+                    {isDark ? <Sun size={18} /> : <Moon size={18} />}
+                  </button>
+                  <NotificationCenter isDark={isDark} />
+                </div>
               </div>
             </div>
-        </header>
+          </header>
 
-        <main className="px-4 py-4 sm:px-6">
-            <div className="space-y-4">
-              {latestInspection && (
-                <div className={`mb-4 shrink-0 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold">最近巡检</span>
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
-                          {getRiskMeta(latestInspection.riskLevel, theme).label}
-                        </span>
-                        <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {formatConversationTime(latestInspection.generatedAt)}
-                        </span>
-                      </div>
-                      <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
+          <div className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6">
+            {latestInspection && (
+              <div className={`mb-4 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">最近巡检</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${getRiskMeta(latestInspection.riskLevel, theme).className}`}>
+                        {getRiskMeta(latestInspection.riskLevel, theme).label}
+                      </span>
+                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {formatConversationTime(latestInspection.generatedAt)}
+                      </span>
                     </div>
+                    <p className={`mt-1 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{latestInspection.summary}</p>
+                  </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {latestInspection.issues.slice(0, 2).map((issue) => (
-                        <span
-                          key={issue.id}
-                          className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
-                        >
-                          {issue.title}
-                        </span>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('issues')}
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                  <div className="flex flex-wrap gap-2">
+                    {latestInspection.issues.slice(0, 2).map((issue) => (
+                      <span
+                        key={issue.id}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${getRiskMeta(issue.riskLevel, theme).className}`}
                       >
-                        查看问题中心
-                      </button>
-                    </div>
+                        {issue.title}
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('issues')}
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${isDark ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                    >
+                      查看问题中心
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              <section className="space-y-4">
-              <div className={`flex overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+            <section className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+              <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
                   { key: 'issues', label: '问题中心', icon: <ShieldAlert size={16} className="mr-1 inline-block" /> },
@@ -1497,13 +1511,13 @@ export default function AIDiagnosis() {
               </div>
 
               {loading ? (
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`h-[380px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
-                  <div className={`h-[380px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
+                  <div className={`h-full min-h-[520px] animate-pulse rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-100'}`}></div>
                 </div>
               ) : activeTab === 'chat' ? (
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_360px]">
-                  <div className={`flex ${chatPanelHeightClass} flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="grid min-h-0 flex-1 gap-6 p-5 xl:grid-cols-[minmax(0,2fr)_360px]">
+                  <div className={`flex min-h-0 flex-col overflow-hidden rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                     <div className={`shrink-0 border-b px-4 py-3 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1620,7 +1634,7 @@ export default function AIDiagnosis() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="min-h-0 space-y-4 overflow-y-auto">
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex items-center justify-between">
                         <div className="font-semibold">优先关注节点</div>
@@ -2117,8 +2131,8 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               )}
-              </section>
-            </div>
+            </section>
+          </div>
         </main>
       </div>
     </div>

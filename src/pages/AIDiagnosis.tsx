@@ -1312,11 +1312,11 @@ export default function AIDiagnosis() {
   };
 
   const diagnosisPanelHeightClass = latestInspection
-    ? 'h-[calc(100vh-15rem)] min-h-[520px]'
-    : 'h-[calc(100vh-12.5rem)] min-h-[560px]';
+    ? 'h-[560px] md:h-[600px] max-h-[calc(100vh-14rem)]'
+    : 'h-[600px] md:h-[640px] max-h-[calc(100vh-11rem)]';
 
   return (
-    <div className={`h-screen overflow-hidden transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen flex transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
@@ -1349,8 +1349,7 @@ export default function AIDiagnosis() {
         </div>
       )}
 
-      <div className="flex h-full min-h-0">
-        <aside className={`hidden w-72 shrink-0 border-r lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+      <aside className={`hidden h-screen w-72 border-r lg:fixed lg:flex lg:flex-col ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
           <div className={`flex h-20 items-center border-b px-6 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex items-center gap-3">
               <Brain size={22} className="text-blue-500" />
@@ -1358,7 +1357,7 @@ export default function AIDiagnosis() {
             </div>
           </div>
 
-          <div className="flex-1 space-y-2 px-4 py-6">
+          <div className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
             {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
             {navItem(<Server />, '节点', '/nodes')}
             {navItem(<Database />, 'Pods', '/pods')}
@@ -1384,10 +1383,10 @@ export default function AIDiagnosis() {
               </button>
             </div>
           </div>
-        </aside>
+      </aside>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className={`shrink-0 border-b px-4 py-3 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
+      <div className="flex-1 lg:ml-72">
+        <header className={`sticky top-0 z-40 border-b px-4 py-3 sm:px-6 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <button onClick={() => setSidebarOpen(true)} className={`rounded-lg p-2 lg:hidden ${isDark ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>
@@ -1428,9 +1427,9 @@ export default function AIDiagnosis() {
                 <NotificationCenter isDark={isDark} />
               </div>
             </div>
-          </header>
+        </header>
 
-          <div className="overflow-y-auto px-4 py-4 sm:px-6">
+        <main className="px-4 py-4 sm:px-6">
             <div className="space-y-4">
               {latestInspection && (
                 <div className={`mb-4 shrink-0 rounded-2xl border px-4 py-3 ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
@@ -2120,7 +2119,6 @@ export default function AIDiagnosis() {
               )}
               </section>
             </div>
-          </div>
         </main>
       </div>
     </div>

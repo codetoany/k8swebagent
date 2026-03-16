@@ -263,6 +263,34 @@ interface AIMultiClusterSummary {
   items: AIMultiClusterItem[];
 }
 
+interface AIMetricsHistoryPoint {
+  time: string;
+  cpuUsage?: number | null;
+  memoryUsage?: number | null;
+  diskUsage?: number | null;
+}
+
+interface AIMetricsHistory {
+  clusterId?: string;
+  range: 'today' | 'week' | 'month';
+  points: AIMetricsHistoryPoint[];
+  generatedAt: string;
+}
+
+interface AIAggregatedLogItem {
+  namespace: string;
+  name: string;
+  status: string;
+  node: string;
+  snippets: string[];
+}
+
+interface AIAggregatedLogs {
+  clusterId?: string;
+  generatedAt: string;
+  items: AIAggregatedLogItem[];
+}
+
 interface AIClusterOverview {
   totalNodes: number;
   onlineNodes: number;
@@ -903,6 +931,11 @@ export default function AIDiagnosis() {
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [multiClusterSummary, setMultiClusterSummary] = useState<AIMultiClusterSummary | null>(null);
   const [multiClusterSummaryLoading, setMultiClusterSummaryLoading] = useState(false);
+  const [metricsRange, setMetricsRange] = useState<'today' | 'week' | 'month'>('today');
+  const [metricsHistory, setMetricsHistory] = useState<AIMetricsHistory | null>(null);
+  const [metricsHistoryLoading, setMetricsHistoryLoading] = useState(false);
+  const [aggregatedLogs, setAggregatedLogs] = useState<AIAggregatedLogs | null>(null);
+  const [aggregatedLogsLoading, setAggregatedLogsLoading] = useState(false);
   const [memories, setMemories] = useState<AIMemory[]>([]);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   const [memorySourceFilter, setMemorySourceFilter] = useState('');
@@ -934,6 +967,32 @@ export default function AIDiagnosis() {
       setMultiClusterSummary(summary);
     } finally {
       setMultiClusterSummaryLoading(false);
+    }
+  };
+
+  const refreshMetricsHistory = async (nextRange: 'today' | 'week' | 'month' = metricsRange) => {
+    setMetricsHistoryLoading(true);
+    try {
+      const history = await apiClient.get<AIMetricsHistory>(
+        aiDiagnosisAPI.getMetricsHistory,
+        selectedClusterId ? { clusterId: selectedClusterId, range: nextRange } : { range: nextRange },
+      );
+      setMetricsHistory(history);
+    } finally {
+      setMetricsHistoryLoading(false);
+    }
+  };
+
+  const refreshAggregatedLogs = async () => {
+    setAggregatedLogsLoading(true);
+    try {
+      const logs = await apiClient.get<AIAggregatedLogs>(
+        aiDiagnosisAPI.getAggregatedLogs,
+        selectedClusterId ? { clusterId: selectedClusterId, limit: 3 } : { limit: 3 },
+      );
+      setAggregatedLogs(logs);
+    } finally {
+      setAggregatedLogsLoading(false);
     }
   };
 
@@ -988,6 +1047,8 @@ export default function AIDiagnosis() {
         setTemplates(templateItems);
         setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
         void refreshMultiClusterSummary();
+        void refreshMetricsHistory('today');
+        void refreshAggregatedLogs();
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -1015,6 +1076,13 @@ export default function AIDiagnosis() {
     }
     void refreshMemories();
   }, [memorySourceFilter]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    void refreshMetricsHistory(metricsRange);
+  }, [metricsRange]);
 
   const handleLogout = () => {
     logout();
@@ -1881,6 +1949,101 @@ export default function AIDiagnosis() {
               ) : activeTab === 'issues' ? (
                 <div className="grid gap-6 p-5 xl:grid-cols-[1.6fr,1fr]">
                   <div className="space-y-4">
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="font-semibold">历史指标视角</div>
+                        <div className="flex flex-wrap gap-2">
+                          {(['today', 'week', 'month'] as const).map((range) => (
+                            <button
+                              key={range}
+                              type="button"
+                              onClick={() => setMetricsRange(range)}
+                              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                metricsRange === range
+                                  ? isDark
+                                    ? 'bg-blue-500/20 text-blue-300'
+                                    : 'bg-blue-50 text-blue-700'
+                                  : isDark
+                                    ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                                    : 'bg-white text-gray-500 hover:bg-gray-100'
+                              }`}
+                            >
+                              {range === 'today' ? '今日' : range === 'week' ? '本周' : '本月'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {metricsHistoryLoading ? (
+                        <div className={`mt-4 h-24 animate-pulse rounded-lg ${isDark ? 'bg-gray-800/70' : 'bg-gray-100'}`}></div>
+                      ) : metricsHistory?.points?.length ? (
+                        <div className="mt-4 space-y-3">
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                              <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>最新 CPU</div>
+                              <div className="mt-2 text-xl font-semibold">{metricsHistory.points.at(-1)?.cpuUsage ?? '--'}%</div>
+                            </div>
+                            <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                              <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>最新内存</div>
+                              <div className="mt-2 text-xl font-semibold">{metricsHistory.points.at(-1)?.memoryUsage ?? '--'}%</div>
+                            </div>
+                            <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                              <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>采样点</div>
+                              <div className="mt-2 text-xl font-semibold">{metricsHistory.points.length}</div>
+                            </div>
+                          </div>
+                          <div className={`rounded-lg border px-3 py-3 text-xs leading-6 ${isDark ? 'border-gray-700 bg-gray-800/40 text-gray-300' : 'border-gray-200 bg-white text-gray-600'}`}>
+                            {metricsHistory.points.slice(-5).map((point) => (
+                              <div key={`${metricsHistory.range}-${point.time}`} className="flex items-center justify-between gap-3">
+                                <span>{point.time}</span>
+                                <span>CPU {point.cpuUsage ?? '--'}%</span>
+                                <span>内存 {point.memoryUsage ?? '--'}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`mt-4 rounded-lg border border-dashed p-4 text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>当前暂无历史指标数据。</div>
+                      )}
+                    </div>
+
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold">聚合日志快照</div>
+                        <button
+                          type="button"
+                          onClick={() => void refreshAggregatedLogs()}
+                          disabled={aggregatedLogsLoading}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400'}`}
+                        >
+                          {aggregatedLogsLoading ? '刷新中...' : '刷新日志'}
+                        </button>
+                      </div>
+                      {aggregatedLogsLoading ? (
+                        <div className={`mt-4 h-24 animate-pulse rounded-lg ${isDark ? 'bg-gray-800/70' : 'bg-gray-100'}`}></div>
+                      ) : aggregatedLogs?.items?.length ? (
+                        <div className="mt-4 space-y-3">
+                          {aggregatedLogs.items.map((item) => (
+                            <div key={`${item.namespace}/${item.name}`} className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="font-medium">{item.namespace}/{item.name}</div>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{item.status}</span>
+                              </div>
+                              <div className={`mt-2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>节点：{item.node || '--'}</div>
+                              <div className={`mt-3 space-y-2 text-xs leading-5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                {item.snippets.map((snippet, index) => (
+                                  <div key={`${item.name}-${index}`} className={`rounded-md px-2 py-2 ${isDark ? 'bg-gray-900 text-gray-300' : 'bg-gray-50 text-gray-600'}`}>
+                                    {snippet}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={`mt-4 rounded-lg border border-dashed p-4 text-sm ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>当前没有可聚合的异常日志。</div>
+                      )}
+                    </div>
+
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>

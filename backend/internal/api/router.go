@@ -204,6 +204,8 @@ func NewRouter(
 		r.Post("/follow-up-recheck", h.wrap(h.runAIFollowUpRecheck))
 		r.Get("/risk-summary", h.wrap(h.aiRiskSummary))
 		r.Get("/multi-cluster-summary", h.wrap(h.aiMultiClusterSummary))
+		r.Get("/metrics/history", h.wrap(h.aiMetricsHistory))
+		r.Get("/logs/aggregate", h.wrap(h.aiAggregatedLogs))
 		r.Get("/memory", h.wrap(h.listAIMemories))
 		r.Get("/memory/resource", h.wrap(h.listAIMemoriesByResource))
 		r.Post("/memory/feedback", h.wrap(h.saveAIMemoryFeedback))

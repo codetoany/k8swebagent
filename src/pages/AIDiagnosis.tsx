@@ -234,6 +234,35 @@ interface AIInspectionSummary {
   generatedAt: string;
 }
 
+interface AIMultiClusterCounts {
+  clusters: number;
+  connected: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  healthy: number;
+}
+
+interface AIMultiClusterItem {
+  clusterId: string;
+  clusterName: string;
+  connectionStatus: string;
+  riskLevel: RiskLevel | 'unknown';
+  summary: string;
+  counts: AIInspectionCounts;
+  topIssueTitle?: string;
+  lastInspectionAt?: string;
+  lastConnectedAt?: string;
+}
+
+interface AIMultiClusterSummary {
+  generatedAt: string;
+  overview: string;
+  counts: AIMultiClusterCounts;
+  items: AIMultiClusterItem[];
+}
+
 interface AIClusterOverview {
   totalNodes: number;
   onlineNodes: number;
@@ -872,6 +901,8 @@ export default function AIDiagnosis() {
   const [issueRiskFilter, setIssueRiskFilter] = useState<string>('');
   const [issueQuery, setIssueQuery] = useState('');
   const [issuesLoading, setIssuesLoading] = useState(false);
+  const [multiClusterSummary, setMultiClusterSummary] = useState<AIMultiClusterSummary | null>(null);
+  const [multiClusterSummaryLoading, setMultiClusterSummaryLoading] = useState(false);
   const [memories, setMemories] = useState<AIMemory[]>([]);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   const [memorySourceFilter, setMemorySourceFilter] = useState('');
@@ -895,6 +926,16 @@ export default function AIDiagnosis() {
     () => conversations.find((item) => item.id === currentConversationId) || null,
     [conversations, currentConversationId],
   );
+
+  const refreshMultiClusterSummary = async () => {
+    setMultiClusterSummaryLoading(true);
+    try {
+      const summary = await apiClient.get<AIMultiClusterSummary>(aiDiagnosisAPI.getMultiClusterSummary);
+      setMultiClusterSummary(summary);
+    } finally {
+      setMultiClusterSummaryLoading(false);
+    }
+  };
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -946,6 +987,7 @@ export default function AIDiagnosis() {
         setMemories(memoryItems);
         setTemplates(templateItems);
         setMessages(createWelcomeMessage(status.clusterName || selectedCluster?.name || '默认诊断上下文'));
+        void refreshMultiClusterSummary();
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -1839,6 +1881,67 @@ export default function AIDiagnosis() {
               ) : activeTab === 'issues' ? (
                 <div className="grid gap-6 p-5 xl:grid-cols-[1.6fr,1fr]">
                   <div className="space-y-4">
+                    <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-semibold">多集群智能汇总</div>
+                          <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {multiClusterSummary?.overview || '汇总各集群最近巡检结果，帮助快速判断当前最值得优先处理的问题。'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void refreshMultiClusterSummary()}
+                          disabled={multiClusterSummaryLoading}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400'}`}
+                        >
+                          {multiClusterSummaryLoading ? '刷新中...' : '刷新汇总'}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-5">
+                        {[
+                          { label: '已启用', value: multiClusterSummary?.counts.clusters ?? 0 },
+                          { label: '已连接', value: multiClusterSummary?.counts.connected ?? 0 },
+                          { label: '高风险', value: (multiClusterSummary?.counts.critical ?? 0) + (multiClusterSummary?.counts.high ?? 0) },
+                          { label: '中风险', value: multiClusterSummary?.counts.medium ?? 0 },
+                          { label: '低风险/健康', value: (multiClusterSummary?.counts.low ?? 0) + (multiClusterSummary?.counts.healthy ?? 0) },
+                        ].map((item) => (
+                          <div key={item.label} className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                            <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{item.label}</div>
+                            <div className="mt-2 text-2xl font-semibold">{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {!!multiClusterSummary?.items?.length && (
+                        <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                          {multiClusterSummary.items.slice(0, 3).map((item) => {
+                            const riskMeta = item.riskLevel === 'unknown'
+                              ? { label: '待巡检', className: isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600' }
+                              : getRiskMeta(item.riskLevel, theme);
+                            return (
+                              <div key={item.clusterId} className={`rounded-lg border p-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="font-medium">{item.clusterName}</div>
+                                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${riskMeta.className}`}>{riskMeta.label}</span>
+                                </div>
+                                <div className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{item.summary}</div>
+                                <div className={`mt-3 flex flex-wrap gap-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  <span>连接：{item.connectionStatus || 'unknown'}</span>
+                                  <span>问题：{item.counts.total ?? 0}</span>
+                                  {item.lastInspectionAt && <span>巡检：{formatConversationTime(item.lastInspectionAt)}</span>}
+                                </div>
+                                {item.topIssueTitle && (
+                                  <div className={`mt-2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>首要问题：{item.topIssueTitle}</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
                     <div className={`rounded-xl border p-4 ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="flex flex-wrap items-center gap-3">
                         <div className="font-semibold">问题中心</div>

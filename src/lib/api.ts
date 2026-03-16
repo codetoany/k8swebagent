@@ -84,6 +84,7 @@ export const aiDiagnosisAPI = {
   resolveIssue: "/ai-diagnosis/issues/:id/resolve",
   runFollowUpRecheck: "/ai-diagnosis/follow-up-recheck",
   getRiskSummary: "/ai-diagnosis/risk-summary",
+  getMultiClusterSummary: "/ai-diagnosis/multi-cluster-summary",
   listMemories: "/ai-diagnosis/memory",
   listResourceMemories: "/ai-diagnosis/memory/resource",
   saveMemoryFeedback: "/ai-diagnosis/memory/feedback",

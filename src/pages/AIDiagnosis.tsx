@@ -40,7 +40,7 @@ type ConversationRole = 'user' | 'assistant';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 type Severity = 'low' | 'medium' | 'high' | 'critical';
 type ActionPriority = 'p1' | 'p2' | 'p3';
-type IssueStatus = 'new' | 'following' | 'resolved' | 'recovered';
+type IssueStatus = 'new' | 'following' | 'acknowledged' | 'silenced' | 'escalated' | 'resolved' | 'recovered';
 type FeedbackLabel = 'helpful' | 'needs_improvement' | 'resolved';
 
 interface AITargetRef {
@@ -152,6 +152,10 @@ interface AIIssue {
   target?: AITargetRef | null;
   evidence?: AIDiagnosisEvidence[];
   actions?: AIDiagnosisAction[];
+  acknowledgedAt?: string;
+  silencedUntil?: string;
+  escalationLevel?: string;
+  escalatedAt?: string;
   firstDetectedAt: string;
   lastDetectedAt: string;
   resolvedAt?: string;
@@ -310,6 +314,9 @@ const suggestionPrompts = [
 const issueStatusMeta: Record<IssueStatus, { label: string; color: string }> = {
   new: { label: '新发现', color: 'rose' },
   following: { label: '持续跟踪', color: 'blue' },
+  acknowledged: { label: '已确认', color: 'amber' },
+  silenced: { label: '已静默', color: 'slate' },
+  escalated: { label: '已升级', color: 'orange' },
   resolved: { label: '已恢复', color: 'emerald' },
   recovered: { label: '已自动恢复', color: 'slate' },
 };
@@ -1166,15 +1173,37 @@ export default function AIDiagnosis() {
     }
   };
 
-  const handleIssueStatusAction = async (issue: AIIssue, nextStatus: 'follow' | 'resolve') => {
-    const endpoint = nextStatus === 'follow' ? aiDiagnosisAPI.followIssue : aiDiagnosisAPI.resolveIssue;
-    const idEndpoint = replacePathParams(endpoint, { id: issue.id });
-    const note =
-      nextStatus === 'follow'
-        ? '已纳入人工持续跟踪'
-        : '已通过人工确认恢复，可作为后续复盘经验';
-    await apiClient.post<AIIssue>(idEndpoint, { note });
-    toast.success(nextStatus === 'follow' ? '问题已加入持续跟踪' : '问题已标记为已恢复');
+  const handleIssueStatusAction = async (
+    issue: AIIssue,
+    nextStatus: 'follow' | 'resolve' | 'acknowledge' | 'silence' | 'escalate',
+  ) => {
+    const endpointMap = {
+      follow: aiDiagnosisAPI.followIssue,
+      resolve: aiDiagnosisAPI.resolveIssue,
+      acknowledge: aiDiagnosisAPI.acknowledgeIssue,
+      silence: aiDiagnosisAPI.silenceIssue,
+      escalate: aiDiagnosisAPI.escalateIssue,
+    } as const;
+
+    const payloadMap = {
+      follow: { note: '已纳入人工持续跟踪' },
+      resolve: { note: '已通过人工确认恢复，可作为后续复盘经验' },
+      acknowledge: { note: '已确认收到告警，等待进一步处理' },
+      silence: { note: '已静默 120 分钟，避免重复打扰', silenceMinutes: 120 },
+      escalate: { note: '已升级为优先处理事项', escalationLevel: 'P1' },
+    } as const;
+
+    const successMap = {
+      follow: '问题已加入持续跟踪',
+      resolve: '问题已标记为已恢复',
+      acknowledge: '问题已确认',
+      silence: '问题已静默 2 小时',
+      escalate: '问题已升级为 P1',
+    } as const;
+
+    const idEndpoint = replacePathParams(endpointMap[nextStatus], { id: issue.id });
+    await apiClient.post<AIIssue>(idEndpoint, payloadMap[nextStatus]);
+    toast.success(successMap[nextStatus]);
     await Promise.all([refreshIssues(), refreshMemories()]);
   };
 
@@ -1386,7 +1415,7 @@ export default function AIDiagnosis() {
   };
 
   return (
-    <div className={`min-h-screen flex transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="fixed inset-0 bg-black/50" onClick={() => setSidebarOpen(false)}></div>
@@ -1456,7 +1485,7 @@ export default function AIDiagnosis() {
           </div>
       </div>
 
-      <main className="flex-1 lg:ml-64">
+      <main className="w-full lg:pl-64">
           <header
             className={`sticky top-0 z-40 border-b p-4 ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'}`}
           >
@@ -1846,6 +1875,10 @@ export default function AIDiagnosis() {
                                   <span>最近出现：{formatConversationTime(issue.lastDetectedAt)}</span>
                                   <span>出现次数：{issue.occurrenceCount}</span>
                                   <span>影响对象：{issue.affectedCount}</span>
+                                  {issue.acknowledgedAt && <span>确认时间：{formatConversationTime(issue.acknowledgedAt)}</span>}
+                                  {issue.silencedUntil && <span>静默至：{formatConversationTime(issue.silencedUntil)}</span>}
+                                  {issue.escalatedAt && <span>升级时间：{formatConversationTime(issue.escalatedAt)}</span>}
+                                  {issue.escalationLevel && <span>升级等级：{issue.escalationLevel}</span>}
                                 </div>
                               </div>
 
@@ -1876,6 +1909,33 @@ export default function AIDiagnosis() {
                                     className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                                   >
                                     持续跟踪
+                                  </button>
+                                )}
+                                {issue.status !== 'acknowledged' && issue.status !== 'resolved' && issue.status !== 'recovered' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleIssueStatusAction(issue, 'acknowledge')}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                                  >
+                                    确认告警
+                                  </button>
+                                )}
+                                {issue.status !== 'silenced' && issue.status !== 'resolved' && issue.status !== 'recovered' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleIssueStatusAction(issue, 'silence')}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                                  >
+                                    静默 2 小时
+                                  </button>
+                                )}
+                                {issue.status !== 'escalated' && issue.status !== 'resolved' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleIssueStatusAction(issue, 'escalate')}
+                                    className={`rounded-lg px-3 py-2 text-sm font-medium ${isDark ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
+                                  >
+                                    升级 P1
                                   </button>
                                 )}
                                 {issue.status !== 'resolved' && (

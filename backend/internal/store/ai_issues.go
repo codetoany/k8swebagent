@@ -17,6 +17,9 @@ import (
 const (
 	AIIssueStatusNew       = "new"
 	AIIssueStatusFollowing = "following"
+	AIIssueStatusAcknowledged = "acknowledged"
+	AIIssueStatusSilenced  = "silenced"
+	AIIssueStatusEscalated = "escalated"
 	AIIssueStatusResolved  = "resolved"
 	AIIssueStatusRecovered = "recovered"
 )
@@ -41,6 +44,10 @@ type AIIssue struct {
 	Target          json.RawMessage `json:"target,omitempty"`
 	Evidence        json.RawMessage `json:"evidence,omitempty"`
 	Actions         json.RawMessage `json:"actions,omitempty"`
+	AcknowledgedAt  *time.Time      `json:"acknowledgedAt,omitempty"`
+	SilencedUntil   *time.Time      `json:"silencedUntil,omitempty"`
+	EscalationLevel string          `json:"escalationLevel,omitempty"`
+	EscalatedAt     *time.Time      `json:"escalatedAt,omitempty"`
 	FirstDetectedAt time.Time       `json:"firstDetectedAt"`
 	LastDetectedAt  time.Time       `json:"lastDetectedAt"`
 	ResolvedAt      *time.Time      `json:"resolvedAt,omitempty"`
@@ -85,6 +92,14 @@ type AIIssueListResult struct {
 	PageSize int       `json:"pageSize"`
 }
 
+type UpdateAIIssueStatusInput struct {
+	ID              string
+	Status          string
+	Note            string
+	SilencedUntil   *time.Time
+	EscalationLevel string
+}
+
 type AIIssueStore struct {
 	pool *pgxpool.Pool
 }
@@ -124,6 +139,18 @@ func (s *AIIssueStore) Init(ctx context.Context) error {
 		return err
 	}
 
+	migrations := []string{
+		`ALTER TABLE ai_issues ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ`,
+		`ALTER TABLE ai_issues ADD COLUMN IF NOT EXISTS silenced_until TIMESTAMPTZ`,
+		`ALTER TABLE ai_issues ADD COLUMN IF NOT EXISTS escalation_level TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE ai_issues ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ`,
+	}
+	for _, statement := range migrations {
+		if _, err := s.pool.Exec(ctx, statement); err != nil {
+			return err
+		}
+	}
+
 	_, err = s.pool.Exec(ctx, `
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_issues_cluster_key
 		ON ai_issues (cluster_id, issue_key)
@@ -146,7 +173,7 @@ func (s *AIIssueStore) SyncInspection(ctx context.Context, input SyncAIIssuesInp
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, issue_key, status, occurrence_count
+		SELECT id, issue_key, status, occurrence_count, silenced_until
 		FROM ai_issues
 		WHERE cluster_id = $1
 	`, strings.TrimSpace(input.ClusterID))
@@ -160,11 +187,12 @@ func (s *AIIssueStore) SyncInspection(ctx context.Context, input SyncAIIssuesInp
 		IssueKey        string
 		Status          string
 		OccurrenceCount int
+		SilencedUntil   *time.Time
 	}
 	existingByKey := make(map[string]existingIssue)
 	for rows.Next() {
 		var item existingIssue
-		if err := rows.Scan(&item.ID, &item.IssueKey, &item.Status, &item.OccurrenceCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.IssueKey, &item.Status, &item.OccurrenceCount, &item.SilencedUntil); err != nil {
 			return err
 		}
 		existingByKey[item.IssueKey] = item
@@ -197,8 +225,14 @@ func (s *AIIssueStore) SyncInspection(ctx context.Context, input SyncAIIssuesInp
 		if existing, ok := existingByKey[issueKey]; ok {
 			nextStatus := existing.Status
 			resolvedAt := any(nil)
+			resetWorkflow := false
 			if existing.Status == AIIssueStatusResolved || existing.Status == AIIssueStatusRecovered {
 				nextStatus = AIIssueStatusNew
+				resetWorkflow = true
+			}
+			if existing.Status == AIIssueStatusSilenced && (existing.SilencedUntil == nil || !existing.SilencedUntil.After(detectedAt)) {
+				nextStatus = AIIssueStatusNew
+				resetWorkflow = true
 			}
 			if nextStatus == AIIssueStatusResolved {
 				resolvedAt = detectedAt
@@ -220,6 +254,10 @@ func (s *AIIssueStore) SyncInspection(ctx context.Context, input SyncAIIssuesInp
 					actions = $14::jsonb,
 					last_detected_at = $15,
 					resolved_at = $16,
+					acknowledged_at = CASE WHEN $17 THEN NULL ELSE acknowledged_at END,
+					silenced_until = CASE WHEN $17 THEN NULL ELSE silenced_until END,
+					escalation_level = CASE WHEN $17 THEN '' ELSE escalation_level END,
+					escalated_at = CASE WHEN $17 THEN NULL ELSE escalated_at END,
 					updated_at = NOW()
 				WHERE id = $1
 			`,
@@ -239,6 +277,7 @@ func (s *AIIssueStore) SyncInspection(ctx context.Context, input SyncAIIssuesInp
 				string(actions),
 				detectedAt,
 				resolvedAt,
+				resetWorkflow,
 			)
 			if err != nil {
 				return err
@@ -351,6 +390,7 @@ func (s *AIIssueStore) List(ctx context.Context, filter AIIssueFilter) (*AIIssue
 		SELECT
 			id, issue_key, cluster_id, cluster_name, category, title, summary, risk_level, score,
 			affected_count, occurrence_count, status, note, source_id, target::text, evidence::text, actions::text,
+			acknowledged_at, silenced_until, escalation_level, escalated_at,
 			first_detected_at, last_detected_at, resolved_at, created_at, updated_at
 		FROM ai_issues
 	` + whereClause + fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
@@ -388,6 +428,7 @@ func (s *AIIssueStore) Get(ctx context.Context, id string) (*AIIssue, error) {
 		SELECT
 			id, issue_key, cluster_id, cluster_name, category, title, summary, risk_level, score,
 			affected_count, occurrence_count, status, note, source_id, target::text, evidence::text, actions::text,
+			acknowledged_at, silenced_until, escalation_level, escalated_at,
 			first_detected_at, last_detected_at, resolved_at, created_at, updated_at
 		FROM ai_issues
 		WHERE id = $1
@@ -400,24 +441,58 @@ func (s *AIIssueStore) Get(ctx context.Context, id string) (*AIIssue, error) {
 }
 
 func (s *AIIssueStore) UpdateStatus(ctx context.Context, id string, status string, note string) (*AIIssue, error) {
-	status = coalesceIssueString(status, AIIssueStatusFollowing)
+	return s.UpdateStatusDetail(ctx, UpdateAIIssueStatusInput{
+		ID:     id,
+		Status: status,
+		Note:   note,
+	})
+}
+
+func (s *AIIssueStore) UpdateStatusDetail(ctx context.Context, input UpdateAIIssueStatusInput) (*AIIssue, error) {
+	status := coalesceIssueString(input.Status, AIIssueStatusFollowing)
 	var resolvedAt any
 	if status == AIIssueStatusResolved {
 		resolvedAt = time.Now().UTC()
+	}
+	var acknowledgedAt any
+	if status == AIIssueStatusAcknowledged {
+		acknowledgedAt = time.Now().UTC()
+	}
+	var silencedUntil any
+	if input.SilencedUntil != nil {
+		silencedUntil = input.SilencedUntil.UTC()
+	}
+	var escalatedAt any
+	if status == AIIssueStatusEscalated {
+		escalatedAt = time.Now().UTC()
 	}
 
 	row := s.pool.QueryRow(ctx, `
 		UPDATE ai_issues
 		SET status = $2,
 			note = CASE WHEN $3 <> '' THEN $3 ELSE note END,
-			resolved_at = $4,
+			resolved_at = $4::timestamptz,
+			acknowledged_at = CASE WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz ELSE acknowledged_at END,
+			silenced_until = CASE WHEN $2 = 'silenced' THEN $6::timestamptz ELSE silenced_until END,
+			escalation_level = CASE WHEN $2 = 'escalated' THEN COALESCE($7::text, escalation_level) ELSE escalation_level END,
+			escalated_at = CASE WHEN $8::timestamptz IS NOT NULL THEN $8::timestamptz ELSE escalated_at END,
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING
 			id, issue_key, cluster_id, cluster_name, category, title, summary, risk_level, score,
 			affected_count, occurrence_count, status, note, source_id, target::text, evidence::text, actions::text,
+			acknowledged_at, silenced_until, escalation_level, escalated_at,
 			first_detected_at, last_detected_at, resolved_at, created_at, updated_at
-	`, strings.TrimSpace(id), status, strings.TrimSpace(note), resolvedAt)
+	`,
+		strings.TrimSpace(input.ID),
+		status,
+		strings.TrimSpace(input.Note),
+		resolvedAt,
+		acknowledgedAt,
+		silencedUntil,
+		strings.TrimSpace(input.EscalationLevel),
+		escalatedAt,
+	)
 	item, err := scanAIIssue(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAIIssueNotFound
@@ -427,11 +502,15 @@ func (s *AIIssueStore) UpdateStatus(ctx context.Context, id string, status strin
 
 func scanAIIssue(scanner interface{ Scan(dest ...any) error }) (*AIIssue, error) {
 	var (
-		item        AIIssue
-		targetRaw   string
-		evidenceRaw string
-		actionsRaw  string
-		resolvedAt  *time.Time
+		item            AIIssue
+		targetRaw       string
+		evidenceRaw     string
+		actionsRaw      string
+		acknowledgedAt  *time.Time
+		silencedUntil   *time.Time
+		escalationLevel string
+		escalatedAt     *time.Time
+		resolvedAt      *time.Time
 	)
 	err := scanner.Scan(
 		&item.ID,
@@ -451,6 +530,10 @@ func scanAIIssue(scanner interface{ Scan(dest ...any) error }) (*AIIssue, error)
 		&targetRaw,
 		&evidenceRaw,
 		&actionsRaw,
+		&acknowledgedAt,
+		&silencedUntil,
+		&escalationLevel,
+		&escalatedAt,
 		&item.FirstDetectedAt,
 		&item.LastDetectedAt,
 		&resolvedAt,
@@ -463,6 +546,10 @@ func scanAIIssue(scanner interface{ Scan(dest ...any) error }) (*AIIssue, error)
 	item.Target = json.RawMessage(targetRaw)
 	item.Evidence = json.RawMessage(evidenceRaw)
 	item.Actions = json.RawMessage(actionsRaw)
+	item.AcknowledgedAt = acknowledgedAt
+	item.SilencedUntil = silencedUntil
+	item.EscalationLevel = strings.TrimSpace(escalationLevel)
+	item.EscalatedAt = escalatedAt
 	item.ResolvedAt = resolvedAt
 	return &item, nil
 }

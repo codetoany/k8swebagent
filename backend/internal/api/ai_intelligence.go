@@ -32,6 +32,10 @@ type aiDiagnosisIssueResponse struct {
 	Target          *aiDiagnosisTargetRef `json:"target,omitempty"`
 	Evidence        []aiDiagnosisEvidence `json:"evidence,omitempty"`
 	Actions         []aiDiagnosisAction   `json:"actions,omitempty"`
+	AcknowledgedAt  string                `json:"acknowledgedAt,omitempty"`
+	SilencedUntil   string                `json:"silencedUntil,omitempty"`
+	EscalationLevel string                `json:"escalationLevel,omitempty"`
+	EscalatedAt     string                `json:"escalatedAt,omitempty"`
 	FirstDetectedAt string                `json:"firstDetectedAt"`
 	LastDetectedAt  string                `json:"lastDetectedAt"`
 	ResolvedAt      string                `json:"resolvedAt,omitempty"`
@@ -46,7 +50,9 @@ type aiDiagnosisIssueListResponse struct {
 }
 
 type aiDiagnosisIssueStatusRequest struct {
-	Note string `json:"note"`
+	Note            string `json:"note"`
+	SilenceMinutes  int    `json:"silenceMinutes"`
+	EscalationLevel string `json:"escalationLevel"`
 }
 
 type aiDiagnosisMemoryResponse struct {
@@ -522,6 +528,18 @@ func toAIDiagnosisIssueResponse(item store.AIIssue) aiDiagnosisIssueResponse {
 		FirstDetectedAt: item.FirstDetectedAt.Format(time.RFC3339),
 		LastDetectedAt:  item.LastDetectedAt.Format(time.RFC3339),
 		UpdatedAt:       item.UpdatedAt.Format(time.RFC3339),
+	}
+	if item.AcknowledgedAt != nil {
+		response.AcknowledgedAt = item.AcknowledgedAt.Format(time.RFC3339)
+	}
+	if item.SilencedUntil != nil {
+		response.SilencedUntil = item.SilencedUntil.Format(time.RFC3339)
+	}
+	if strings.TrimSpace(item.EscalationLevel) != "" {
+		response.EscalationLevel = item.EscalationLevel
+	}
+	if item.EscalatedAt != nil {
+		response.EscalatedAt = item.EscalatedAt.Format(time.RFC3339)
 	}
 	if item.ResolvedAt != nil {
 		response.ResolvedAt = item.ResolvedAt.Format(time.RFC3339)

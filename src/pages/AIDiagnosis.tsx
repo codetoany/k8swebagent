@@ -1454,9 +1454,9 @@ export default function AIDiagnosis() {
           </header>
 
           <div className="p-4 md:p-6">
-
-            <section className={`overflow-hidden rounded-2xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
-              <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="space-y-4">
+              <div className={`overflow-hidden rounded-xl border shadow-sm ${isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+                <div className={`flex shrink-0 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 {[
                   { key: 'chat', label: '聊天', icon: <MessageCircle size={16} className="mr-1 inline-block" /> },
                   { key: 'issues', label: '问题中心', icon: <ShieldAlert size={16} className="mr-1 inline-block" /> },
@@ -1481,6 +1481,7 @@ export default function AIDiagnosis() {
                     {tab.label}
                   </button>
                 ))}
+                </div>
               </div>
 
               {loading ? (
@@ -2104,7 +2105,7 @@ export default function AIDiagnosis() {
                   </div>
                 </div>
               )}
-            </section>
+            </div>
           </div>
         </main>
     </div>

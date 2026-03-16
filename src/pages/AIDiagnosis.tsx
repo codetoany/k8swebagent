@@ -996,6 +996,15 @@ export default function AIDiagnosis() {
     }
   };
 
+  const latestAvailableMetricsPoint = useMemo(() => {
+    if (!metricsHistory?.points?.length) {
+      return null;
+    }
+    return [...metricsHistory.points].reverse().find(
+      (point) => point.cpuUsage != null || point.memoryUsage != null || point.diskUsage != null,
+    ) ?? null;
+  }, [metricsHistory]);
+
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) {
@@ -1980,11 +1989,11 @@ export default function AIDiagnosis() {
                           <div className="grid gap-3 md:grid-cols-3">
                             <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
                               <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>最新 CPU</div>
-                              <div className="mt-2 text-xl font-semibold">{metricsHistory.points.at(-1)?.cpuUsage ?? '--'}%</div>
+                              <div className="mt-2 text-xl font-semibold">{latestAvailableMetricsPoint?.cpuUsage ?? '--'}%</div>
                             </div>
                             <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
                               <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>最新内存</div>
-                              <div className="mt-2 text-xl font-semibold">{metricsHistory.points.at(-1)?.memoryUsage ?? '--'}%</div>
+                              <div className="mt-2 text-xl font-semibold">{latestAvailableMetricsPoint?.memoryUsage ?? '--'}%</div>
                             </div>
                             <div className={`rounded-lg border px-3 py-3 ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-white'}`}>
                               <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>采样点</div>

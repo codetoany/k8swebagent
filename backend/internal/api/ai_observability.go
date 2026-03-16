@@ -41,7 +41,10 @@ func (h *handler) aiMetricsHistory(w http.ResponseWriter, r *http.Request) error
 
 	payload, err := h.dashboardService.ResourceUsagePayload(r.Context(), clusterID, rangeValue)
 	if err != nil {
-		return err
+		payload, err = h.snapshotResourceUsagePayload(r, rangeValue)
+		if err != nil {
+			return err
+		}
 	}
 
 	var points []service.ResourceUsagePoint
@@ -73,7 +76,10 @@ func (h *handler) aiAggregatedLogs(w http.ResponseWriter, r *http.Request) error
 
 	payload, err := h.podsService.ListPayload(r.Context(), clusterID)
 	if err != nil {
-		return err
+		payload, err = h.snapshotPodListPayload(r)
+		if err != nil {
+			return err
+		}
 	}
 
 	var pods []service.PodListItem
@@ -86,7 +92,10 @@ func (h *handler) aiAggregatedLogs(w http.ResponseWriter, r *http.Request) error
 	for _, pod := range selected {
 		logPayload, logErr := h.podsService.LogsPayload(r.Context(), clusterID, pod.Namespace, pod.Name)
 		if logErr != nil {
-			continue
+			logPayload, logErr = h.snapshotPodLogsPayload(r, pod.Namespace, pod.Name)
+			if logErr != nil {
+				continue
+			}
 		}
 
 		var entries []service.PodLogEntry
@@ -121,6 +130,50 @@ func (h *handler) aiAggregatedLogs(w http.ResponseWriter, r *http.Request) error
 		Items:       items,
 	})
 	return nil
+}
+
+func (h *handler) snapshotResourceUsagePayload(r *http.Request, rangeValue string) (json.RawMessage, error) {
+	payload, err := h.store.Get(r.Context(), "dashboard", "resource-usage")
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, newHTTPError(http.StatusServiceUnavailable, "当前无法获取历史指标数据")
+	}
+	return payload, nil
+}
+
+func (h *handler) snapshotPodListPayload(r *http.Request) (json.RawMessage, error) {
+	payload, err := h.store.Get(r.Context(), "pods", "list")
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, newHTTPError(http.StatusServiceUnavailable, "当前无法获取 Pod 列表快照")
+	}
+	return payload, nil
+}
+
+func (h *handler) snapshotPodLogsPayload(r *http.Request, namespace string, name string) (json.RawMessage, error) {
+	payload, err := h.store.Get(r.Context(), "pods", "logs")
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return json.Marshal([]service.PodLogEntry{})
+	}
+
+	var logs map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &logs); err != nil {
+		return nil, err
+	}
+
+	entryKey := strings.TrimSpace(namespace) + "/" + strings.TrimSpace(name)
+	entry, found := logs[entryKey]
+	if !found {
+		return json.Marshal([]service.PodLogEntry{})
+	}
+	return entry, nil
 }
 
 func selectAggregatedLogPods(pods []service.PodListItem, namespace string, name string, scope string, limit int) []service.PodListItem {

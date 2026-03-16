@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -550,7 +551,7 @@ func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	if settings.Notifications.Level == "none" || h.auditStore == nil {
+	if settings.Notifications.Level == "none" {
 		writeJSON(w, http.StatusOK, notificationListResponse{
 			Items:       []notificationItemResponse{},
 			UnreadCount: 0,
@@ -560,17 +561,36 @@ func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) erro
 		return nil
 	}
 
-	audits, err := h.auditStore.List(r.Context(), store.AuditLogFilter{
-		ClusterID: strings.TrimSpace(r.URL.Query().Get("clusterId")),
-		Page:      1,
-		PageSize:  100,
-	})
-	if err != nil {
-		return err
+	clusterID := strings.TrimSpace(r.URL.Query().Get("clusterId"))
+
+	audits := store.AuditLogListResult{Items: []store.AuditLogEntry{}}
+	if h.auditStore != nil {
+		auditResult, auditErr := h.auditStore.List(r.Context(), store.AuditLogFilter{
+			ClusterID: clusterID,
+			Page:      1,
+			PageSize:  100,
+		})
+		if auditErr != nil {
+			return auditErr
+		}
+		audits = *auditResult
+	}
+
+	issues := store.AIIssueListResult{Items: []store.AIIssue{}}
+	if h.aiIssueStore != nil {
+		issueResult, issueErr := h.aiIssueStore.List(r.Context(), store.AIIssueFilter{
+			ClusterID: clusterID,
+			Page:      1,
+			PageSize:  100,
+		})
+		if issueErr != nil {
+			return issueErr
+		}
+		issues = *issueResult
 	}
 
 	limit := requestedLimit(r, 12)
-	notifications, unreadCount, total := buildNotifications(audits.Items, settings.Notifications, state.LastReadAt, limit)
+	notifications, unreadCount, total := buildNotifications(audits.Items, issues.Items, settings.Notifications, state.LastReadAt, limit)
 
 	writeJSON(w, http.StatusOK, notificationListResponse{
 		Items:       notifications,
@@ -2061,7 +2081,7 @@ func (h *handler) readSettingsPayload(ctx context.Context, key string) (json.Raw
 	return h.store.Get(ctx, "settings", key)
 }
 
-func buildNotifications(entries []store.AuditLogEntry, settings notificationSettingsDocument, lastReadAt string, limit int) ([]notificationItemResponse, int, int) {
+func buildNotifications(entries []store.AuditLogEntry, issues []store.AIIssue, settings notificationSettingsDocument, lastReadAt string, limit int) ([]notificationItemResponse, int, int) {
 	if limit <= 0 {
 		limit = 12
 	}
@@ -2080,8 +2100,6 @@ func buildNotifications(entries []store.AuditLogEntry, settings notificationSett
 	}
 
 	notifications := make([]notificationItemResponse, 0, limit)
-	unreadCount := 0
-	total := 0
 	for _, entry := range entries {
 		kind, ok := notificationKindForAudit(entry)
 		if !ok {
@@ -2112,16 +2130,76 @@ func buildNotifications(entries []store.AuditLogEntry, settings notificationSett
 			CreatedAt:    entry.CreatedAt,
 			Read:         !lastRead.IsZero() && !entry.CreatedAt.After(lastRead),
 		}
-		total++
+		notifications = append(notifications, item)
+	}
+
+	notifications = append(notifications, buildIssueNotifications(issues, settings, lastRead)...)
+	sort.Slice(notifications, func(i, j int) bool {
+		return notifications[i].CreatedAt.After(notifications[j].CreatedAt)
+	})
+
+	total := len(notifications)
+	unreadCount := 0
+	for _, item := range notifications {
 		if !item.Read {
 			unreadCount++
 		}
-		if len(notifications) < limit {
-			notifications = append(notifications, item)
-		}
+	}
+	if len(notifications) > limit {
+		notifications = notifications[:limit]
 	}
 
 	return notifications, unreadCount, total
+}
+
+func buildIssueNotifications(issues []store.AIIssue, settings notificationSettingsDocument, lastRead time.Time) []notificationItemResponse {
+	enabledKinds := map[string]struct{}{}
+	for _, item := range settings.EnabledTypes {
+		enabledKinds[strings.TrimSpace(item)] = struct{}{}
+	}
+	if len(enabledKinds) > 0 {
+		if _, exists := enabledKinds["issue"]; !exists {
+			return []notificationItemResponse{}
+		}
+	}
+
+	items := make([]notificationItemResponse, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Status == "resolved" || issue.Status == "recovered" || issue.Status == "silenced" {
+			continue
+		}
+		if issue.RiskLevel != "critical" && issue.RiskLevel != "high" && issue.Status != "escalated" {
+			continue
+		}
+
+		level := "info"
+		if issue.RiskLevel == "critical" || issue.Status == "escalated" {
+			level = "critical"
+		}
+		if settings.Level == "critical" && level != "critical" {
+			continue
+		}
+
+		createdAt := issue.UpdatedAt
+		if issue.EscalatedAt != nil {
+			createdAt = *issue.EscalatedAt
+		}
+		items = append(items, notificationItemResponse{
+			ID:           "issue-" + issue.ID + "-" + issue.Status,
+			Kind:         "issue",
+			Level:        level,
+			Title:        notificationTitleForIssue(issue),
+			Message:      strings.TrimSpace(issue.Summary),
+			Action:       "ai.issue.alert",
+			ResourceType: "ai-issue",
+			ResourceName: issue.Title,
+			ClusterID:    issue.ClusterID,
+			ClusterName:  issue.ClusterName,
+			CreatedAt:    createdAt,
+			Read:         !lastRead.IsZero() && !createdAt.After(lastRead),
+		})
+	}
+	return items
 }
 
 func notificationKindForAudit(entry store.AuditLogEntry) (string, bool) {
@@ -2132,7 +2210,7 @@ func notificationKindForAudit(entry store.AuditLogEntry) (string, bool) {
 		return "pod", true
 	case "deployments", "statefulsets", "daemonsets", "cronjobs":
 		return "workload", true
-	case "ai-issue", "ai-inspection":
+	case "ai-inspection":
 		return "issue", true
 	default:
 		return "", false
@@ -2180,6 +2258,20 @@ func notificationTitleForAudit(entry store.AuditLogEntry) string {
 			return "集群操作失败"
 		}
 		return "集群操作通知"
+	}
+}
+
+func notificationTitleForIssue(issue store.AIIssue) string {
+	switch issue.Status {
+	case "escalated":
+		return "AI 问题已升级"
+	case "following":
+		return "AI 问题持续跟踪中"
+	default:
+		if issue.RiskLevel == "critical" {
+			return "AI 发现高危问题"
+		}
+		return "AI 发现高风险问题"
 	}
 }
 

@@ -83,6 +83,6 @@ func (h *handler) updateAIIssueWorkflowStatus(w http.ResponseWriter, r *http.Req
 		},
 	})
 
-	writeJSON(w, http.StatusOK, toAIDiagnosisIssueResponse(*item))
+	writeJSON(w, http.StatusOK, h.toAIDiagnosisIssueResponse(r.Context(), *item))
 	return nil
 }

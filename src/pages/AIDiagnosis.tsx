@@ -152,6 +152,7 @@ interface AIIssue {
   target?: AITargetRef | null;
   evidence?: AIDiagnosisEvidence[];
   actions?: AIDiagnosisAction[];
+  relatedChanges?: AIRelatedChange[];
   acknowledgedAt?: string;
   silencedUntil?: string;
   escalationLevel?: string;
@@ -160,6 +161,19 @@ interface AIIssue {
   lastDetectedAt: string;
   resolvedAt?: string;
   updatedAt: string;
+}
+
+interface AIRelatedChange {
+  id: string;
+  action: string;
+  resourceType: string;
+  resourceName: string;
+  namespace?: string;
+  status: string;
+  message: string;
+  actorName?: string;
+  createdAt: string;
+  target?: AITargetRef | null;
 }
 
 interface AIIssueListResponse {
@@ -1961,6 +1975,52 @@ export default function AIDiagnosis() {
                                     <div className={`mt-2 text-sm leading-6 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{evidence.summary}</div>
                                   </div>
                                 ))}
+                              </div>
+                            )}
+
+                            {!!issue.relatedChanges?.length && (
+                              <div className="mt-4 rounded-xl border border-dashed px-4 py-3">
+                                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                                  <RefreshCw size={14} className="text-blue-500" />
+                                  相关变更
+                                </div>
+                                <div className="space-y-2">
+                                  {issue.relatedChanges.slice(0, 3).map((change) => (
+                                    <div
+                                      key={change.id}
+                                      className={`rounded-lg border px-3 py-3 text-sm ${
+                                        isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'
+                                      }`}
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="font-medium">
+                                          {change.action} · {change.resourceType}/{change.resourceName}
+                                        </div>
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                            change.status === 'failed'
+                                              ? isDark
+                                                ? 'bg-rose-500/15 text-rose-300'
+                                                : 'bg-rose-50 text-rose-600'
+                                              : isDark
+                                                ? 'bg-emerald-500/15 text-emerald-300'
+                                                : 'bg-emerald-50 text-emerald-600'
+                                          }`}
+                                        >
+                                          {change.status === 'failed' ? '失败' : '成功'}
+                                        </span>
+                                      </div>
+                                      <div className={`mt-2 text-xs leading-5 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                        {change.message}
+                                      </div>
+                                      <div className={`mt-2 flex flex-wrap items-center gap-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        <span>{formatConversationTime(change.createdAt)}</span>
+                                        {change.actorName && <span>操作人：{change.actorName}</span>}
+                                        {change.namespace && <span>命名空间：{change.namespace}</span>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>

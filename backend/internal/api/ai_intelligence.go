@@ -32,6 +32,7 @@ type aiDiagnosisIssueResponse struct {
 	Target          *aiDiagnosisTargetRef `json:"target,omitempty"`
 	Evidence        []aiDiagnosisEvidence `json:"evidence,omitempty"`
 	Actions         []aiDiagnosisAction   `json:"actions,omitempty"`
+	RelatedChanges  []aiDiagnosisRelatedChange `json:"relatedChanges,omitempty"`
 	AcknowledgedAt  string                `json:"acknowledgedAt,omitempty"`
 	SilencedUntil   string                `json:"silencedUntil,omitempty"`
 	EscalationLevel string                `json:"escalationLevel,omitempty"`
@@ -40,6 +41,19 @@ type aiDiagnosisIssueResponse struct {
 	LastDetectedAt  string                `json:"lastDetectedAt"`
 	ResolvedAt      string                `json:"resolvedAt,omitempty"`
 	UpdatedAt       string                `json:"updatedAt"`
+}
+
+type aiDiagnosisRelatedChange struct {
+	ID           string                `json:"id"`
+	Action       string                `json:"action"`
+	ResourceType string                `json:"resourceType"`
+	ResourceName string                `json:"resourceName"`
+	Namespace    string                `json:"namespace,omitempty"`
+	Status       string                `json:"status"`
+	Message      string                `json:"message"`
+	ActorName    string                `json:"actorName,omitempty"`
+	CreatedAt    string                `json:"createdAt"`
+	Target       *aiDiagnosisTargetRef `json:"target,omitempty"`
 }
 
 type aiDiagnosisIssueListResponse struct {
@@ -287,7 +301,7 @@ func (h *handler) listAIIssues(w http.ResponseWriter, r *http.Request) error {
 
 	items := make([]aiDiagnosisIssueResponse, 0, len(result.Items))
 	for _, item := range result.Items {
-		items = append(items, toAIDiagnosisIssueResponse(item))
+		items = append(items, h.toAIDiagnosisIssueResponse(r.Context(), item))
 	}
 
 	writeJSON(w, http.StatusOK, aiDiagnosisIssueListResponse{
@@ -312,7 +326,7 @@ func (h *handler) getAIIssue(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	writeJSON(w, http.StatusOK, toAIDiagnosisIssueResponse(*item))
+	writeJSON(w, http.StatusOK, h.toAIDiagnosisIssueResponse(r.Context(), *item))
 	return nil
 }
 
@@ -370,11 +384,11 @@ func (h *handler) updateAIIssueStatus(w http.ResponseWriter, r *http.Request, st
 			FeedbackLabel:     "resolved",
 			Title:             "问题复盘：" + item.Title,
 			Summary:           coalesceString(strings.TrimSpace(payload.Note), item.Summary),
-			Payload:           map[string]any{"issue": toAIDiagnosisIssueResponse(*item)},
+			Payload:           map[string]any{"issue": h.toAIDiagnosisIssueResponse(r.Context(), *item)},
 		})
 	}
 
-	writeJSON(w, http.StatusOK, toAIDiagnosisIssueResponse(*item))
+	writeJSON(w, http.StatusOK, h.toAIDiagnosisIssueResponse(r.Context(), *item))
 	return nil
 }
 
@@ -497,7 +511,7 @@ func (h *handler) saveAIMemoryFeedback(w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
-func toAIDiagnosisIssueResponse(item store.AIIssue) aiDiagnosisIssueResponse {
+func (h *handler) toAIDiagnosisIssueResponse(ctx context.Context, item store.AIIssue) aiDiagnosisIssueResponse {
 	var (
 		target   *aiDiagnosisTargetRef
 		evidence []aiDiagnosisEvidence
@@ -525,6 +539,7 @@ func toAIDiagnosisIssueResponse(item store.AIIssue) aiDiagnosisIssueResponse {
 		Target:          target,
 		Evidence:        evidence,
 		Actions:         actions,
+		RelatedChanges:  h.listIssueRelatedChanges(ctx, item, target),
 		FirstDetectedAt: item.FirstDetectedAt.Format(time.RFC3339),
 		LastDetectedAt:  item.LastDetectedAt.Format(time.RFC3339),
 		UpdatedAt:       item.UpdatedAt.Format(time.RFC3339),
@@ -612,6 +627,153 @@ func extractTargetName(raw json.RawMessage) string {
 		return ""
 	}
 	return strings.TrimSpace(target.Name)
+}
+
+func (h *handler) listIssueRelatedChanges(ctx context.Context, item store.AIIssue, target *aiDiagnosisTargetRef) []aiDiagnosisRelatedChange {
+	if h.auditStore == nil {
+		return nil
+	}
+
+	filter := store.AuditLogFilter{
+		ClusterID: item.ClusterID,
+		Page:      1,
+		PageSize:  5,
+	}
+
+	if target != nil {
+		filter.ResourceType = auditResourceTypeFromTarget(target)
+		filter.ResourceName = strings.TrimSpace(target.Name)
+		filter.Namespace = strings.TrimSpace(target.Namespace)
+	}
+
+	result, err := h.auditStore.List(ctx, filter)
+	if err != nil || result == nil || len(result.Items) == 0 {
+		return h.listClusterRecentChanges(ctx, item.ClusterID, 3)
+	}
+
+	changes := make([]aiDiagnosisRelatedChange, 0, len(result.Items))
+	for _, entry := range result.Items {
+		if !isRelevantOperationalChange(entry) {
+			continue
+		}
+		if target != nil && !auditEntryMatchesTarget(entry, target) {
+			continue
+		}
+
+		changes = append(changes, aiDiagnosisRelatedChange{
+			ID:           entry.ID,
+			Action:       entry.Action,
+			ResourceType: entry.ResourceType,
+			ResourceName: entry.ResourceName,
+			Namespace:    entry.Namespace,
+			Status:       string(entry.Status),
+			Message:      entry.Message,
+			ActorName:    entry.ActorName,
+			CreatedAt:    entry.CreatedAt.Format(time.RFC3339),
+			Target:       auditEntryTarget(entry),
+		})
+	}
+
+	if len(changes) == 0 {
+		return h.listClusterRecentChanges(ctx, item.ClusterID, 3)
+	}
+
+	return changes
+}
+
+func auditResourceTypeFromTarget(target *aiDiagnosisTargetRef) string {
+	if target == nil {
+		return ""
+	}
+
+	switch strings.ToLower(strings.TrimSpace(target.Kind)) {
+	case "workload":
+		return strings.ToLower(strings.TrimSpace(target.Scope))
+	default:
+		return strings.ToLower(strings.TrimSpace(target.Kind))
+	}
+}
+
+func auditEntryMatchesTarget(entry store.AuditLogEntry, target *aiDiagnosisTargetRef) bool {
+	resourceType := auditResourceTypeFromTarget(target)
+	if resourceType != "" && !strings.EqualFold(strings.TrimSpace(entry.ResourceType), resourceType) {
+		return false
+	}
+	if strings.TrimSpace(target.Name) != "" && !strings.EqualFold(strings.TrimSpace(entry.ResourceName), strings.TrimSpace(target.Name)) {
+		return false
+	}
+	if strings.TrimSpace(target.Namespace) != "" && !strings.EqualFold(strings.TrimSpace(entry.Namespace), strings.TrimSpace(target.Namespace)) {
+		return false
+	}
+	return true
+}
+
+func auditEntryTarget(entry store.AuditLogEntry) *aiDiagnosisTargetRef {
+	resourceType := strings.ToLower(strings.TrimSpace(entry.ResourceType))
+	switch resourceType {
+	case "node":
+		return newNodeTargetRef(entry.ResourceName)
+	case "pod":
+		return newPodTargetRef(entry.Namespace, entry.ResourceName)
+	case "deployments", "statefulsets", "daemonsets", "cronjobs":
+		return newWorkloadTargetRef(resourceType, entry.Namespace, entry.ResourceName)
+	default:
+		return nil
+	}
+}
+
+func (h *handler) listClusterRecentChanges(ctx context.Context, clusterID string, limit int) []aiDiagnosisRelatedChange {
+	if h.auditStore == nil {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+
+	result, err := h.auditStore.List(ctx, store.AuditLogFilter{
+		ClusterID: strings.TrimSpace(clusterID),
+		Page:      1,
+		PageSize:  limit,
+	})
+	if err != nil || result == nil || len(result.Items) == 0 {
+		return nil
+	}
+
+	changes := make([]aiDiagnosisRelatedChange, 0, len(result.Items))
+	for _, entry := range result.Items {
+		if !isRelevantOperationalChange(entry) {
+			continue
+		}
+		changes = append(changes, aiDiagnosisRelatedChange{
+			ID:           entry.ID,
+			Action:       entry.Action,
+			ResourceType: entry.ResourceType,
+			ResourceName: entry.ResourceName,
+			Namespace:    entry.Namespace,
+			Status:       string(entry.Status),
+			Message:      entry.Message,
+			ActorName:    entry.ActorName,
+			CreatedAt:    entry.CreatedAt.Format(time.RFC3339),
+			Target:       auditEntryTarget(entry),
+		})
+	}
+	return changes
+}
+
+func isRelevantOperationalChange(entry store.AuditLogEntry) bool {
+	action := strings.TrimSpace(entry.Action)
+	resourceType := strings.ToLower(strings.TrimSpace(entry.ResourceType))
+
+	if strings.HasPrefix(action, "ai.") {
+		return false
+	}
+
+	switch resourceType {
+	case "ai-issue", "ai-memory", "ai-template", "ai-inspection", "settings", "cluster":
+		return false
+	default:
+		return true
+	}
 }
 
 func (h *handler) saveConversationMemory(

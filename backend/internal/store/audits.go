@@ -54,6 +54,8 @@ type AuditLogFilter struct {
 	Status       AuditStatus
 	Action       string
 	ResourceType string
+	ResourceName string
+	Namespace    string
 	Query        string
 	Page         int
 	PageSize     int
@@ -171,6 +173,16 @@ func (s *AuditStore) List(ctx context.Context, filter AuditLogFilter) (*AuditLog
 	if resourceType := strings.TrimSpace(filter.ResourceType); resourceType != "" {
 		whereParts = append(whereParts, fmt.Sprintf("resource_type = $%d", len(args)+1))
 		args = append(args, resourceType)
+	}
+
+	if resourceName := strings.TrimSpace(filter.ResourceName); resourceName != "" {
+		whereParts = append(whereParts, fmt.Sprintf("resource_name = $%d", len(args)+1))
+		args = append(args, resourceName)
+	}
+
+	if namespace := strings.TrimSpace(filter.Namespace); namespace != "" {
+		whereParts = append(whereParts, fmt.Sprintf("namespace = $%d", len(args)+1))
+		args = append(args, namespace)
 	}
 
 	if queryValue := strings.TrimSpace(filter.Query); queryValue != "" {

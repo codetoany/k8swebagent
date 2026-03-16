@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Bell, CheckCheck, Database, Network, RefreshCw, Server } from 'lucide-react';
+import { AlertTriangle, Bell, CheckCheck, Database, Network, RefreshCw, Server, ShieldAlert } from 'lucide-react';
 import apiClient from '@/lib/apiClient';
 import { notificationsAPI } from '@/lib/api';
 import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
 
-type NotificationKind = 'node' | 'pod' | 'workload';
+type NotificationKind = 'node' | 'pod' | 'workload' | 'issue';
 type NotificationLevel = 'critical' | 'info';
 
 type NotificationItem = {
@@ -34,6 +34,7 @@ const kindLabelMap: Record<NotificationKind, string> = {
   node: '节点',
   pod: 'Pod',
   workload: '工作负载',
+  issue: '问题',
 };
 
 function formatNotificationTime(value: string) {
@@ -97,6 +98,17 @@ export default function NotificationCenter() {
   }, [open, clusterId]);
 
   useEffect(() => {
+    const handleRefresh = () => {
+      void loadNotifications();
+    };
+
+    window.addEventListener('notifications:refresh', handleRefresh);
+    return () => {
+      window.removeEventListener('notifications:refresh', handleRefresh);
+    };
+  }, [clusterId]);
+
+  useEffect(() => {
     if (!open) {
       return;
     }
@@ -153,6 +165,12 @@ export default function NotificationCenter() {
           Icon: Database,
           iconClass: 'text-emerald-500',
           badgeClass: currentTheme === 'dark' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-emerald-50 text-emerald-700',
+        };
+      case 'issue':
+        return {
+          Icon: ShieldAlert,
+          iconClass: 'text-amber-500',
+          badgeClass: currentTheme === 'dark' ? 'bg-amber-500/10 text-amber-200' : 'bg-amber-50 text-amber-700',
         };
       default:
         return {

@@ -31,7 +31,7 @@ import { toast } from 'sonner';
 import { AuthContext } from '@/contexts/authContext';
 import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
-import apiClient, { buildApiUrl } from '@/lib/apiClient';
+import apiClient, { ApiError, buildApiUrl } from '@/lib/apiClient';
 import { aiDiagnosisAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import NotificationCenter from '@/components/NotificationCenter';
@@ -286,6 +286,13 @@ interface AIChatResponse {
   report?: AIDiagnosisReport;
 }
 
+interface AIFollowUpRecheckResponse {
+  outcome: 'recovered' | 'persistent' | 'attention';
+  summary: string;
+  inspection?: AIInspectionSummary | null;
+  relatedIssues?: AIIssue[];
+}
+
 interface AIDiagnosisStreamDone {
   conversation: AIConversation;
   cluster: AIClusterStatus;
@@ -317,6 +324,15 @@ function createWelcomeMessage(clusterName: string): AIConversationMessage[] {
       createdAt: new Date().toISOString(),
     },
   ];
+}
+
+function createFollowUpAssistantMessage(summary: string): AIConversationMessage {
+  return {
+    id: `follow-up-${Date.now()}`,
+    role: 'assistant',
+    content: `【自动复检】${summary}`,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function formatConversationTime(value: string): string {
@@ -1085,8 +1101,66 @@ export default function AIDiagnosis() {
           await apiClient.post(endpoint, body);
           break;
       }
-      toast.success(operation.successMessage || '操作已执行');
-      await Promise.all([refreshClusterStatus(), refreshIssues(), refreshHistory(currentConversationId)]);
+
+      const operationSuccessMessage = operation.successMessage || `${operation.label || action.title}已执行`;
+      let followUpResult: AIFollowUpRecheckResponse | null = null;
+      let followUpFailureMessage = '';
+      try {
+        followUpResult = await apiClient.post<AIFollowUpRecheckResponse>(aiDiagnosisAPI.runFollowUpRecheck, {
+          clusterId: selectedClusterId || undefined,
+          actionTitle: action.title,
+          operationLabel: operation.label,
+          target: action.target || null,
+        });
+      } catch (error) {
+        followUpFailureMessage = error instanceof ApiError ? error.message : '自动复检暂时无法完成，请稍后重试。';
+      }
+
+      toast.success(operationSuccessMessage);
+
+      if (followUpFailureMessage) {
+        toast.warning(followUpFailureMessage);
+        setMessages((current) => [
+          ...current,
+          createFollowUpAssistantMessage(`已执行“${operation.label || action.title}”，但自动复检失败：${followUpFailureMessage}`),
+        ]);
+      } else if (followUpResult) {
+        if (followUpResult.outcome === 'persistent') {
+          toast.warning(followUpResult.summary);
+        }
+        if (followUpResult.summary) {
+          setMessages((current) => [...current, createFollowUpAssistantMessage(followUpResult.summary)]);
+        }
+        if (followUpResult.inspection) {
+          setLatestInspection(followUpResult.inspection);
+        }
+      }
+
+      window.dispatchEvent(new Event('notifications:refresh'));
+      await Promise.all([refreshClusterStatus(), refreshIssues(), refreshHistory(currentConversationId), refreshMemories()]);
+      return;
+
+      const followUp = await apiClient.post<AIFollowUpRecheckResponse>(aiDiagnosisAPI.runFollowUpRecheck, {
+        clusterId: selectedClusterId || undefined,
+        actionTitle: action.title,
+        operationLabel: operation.label,
+        target: action.target || null,
+      });
+
+      if (followUp.outcome === 'persistent') {
+        toast.warning(followUp.summary);
+      } else {
+        toast.success(followUp.summary || operation.successMessage || '操作已执行');
+      }
+
+      if (followUp.summary) {
+        setMessages((current) => [...current, createFollowUpAssistantMessage(followUp.summary)]);
+      }
+      if (followUp.inspection) {
+        setLatestInspection(followUp.inspection);
+      }
+      window.dispatchEvent(new Event('notifications:refresh'));
+      await Promise.all([refreshClusterStatus(), refreshIssues(), refreshHistory(currentConversationId), refreshMemories()]);
     } finally {
       setActionSubmitting('');
     }

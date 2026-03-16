@@ -19,6 +19,7 @@ const (
 
 	AIInspectionTriggerManual    = "manual"
 	AIInspectionTriggerScheduled = "scheduled"
+	AIInspectionTriggerFollowUp  = "follow-up"
 )
 
 type AIInspection struct {

@@ -623,7 +623,7 @@ var SnapshotSeeds = []SnapshotSeed{
   "showEvents": true,
   "notifications": {
     "level": "all",
-    "enabledTypes": ["node", "pod", "workload"]
+    "enabledTypes": ["node", "pod", "workload", "issue"]
   }
 }`),
 	},

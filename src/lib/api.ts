@@ -79,6 +79,7 @@ export const aiDiagnosisAPI = {
   getIssueDetail: "/ai-diagnosis/issues/:id",
   followIssue: "/ai-diagnosis/issues/:id/follow",
   resolveIssue: "/ai-diagnosis/issues/:id/resolve",
+  runFollowUpRecheck: "/ai-diagnosis/follow-up-recheck",
   getRiskSummary: "/ai-diagnosis/risk-summary",
   listMemories: "/ai-diagnosis/memory",
   listResourceMemories: "/ai-diagnosis/memory/resource",

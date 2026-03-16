@@ -25,7 +25,7 @@
   type ThemeOption = 'light' | 'dark' | 'system';
   type NotificationOption = 'all' | 'critical' | 'none';
   type LanguageOption = 'zh-CN' | 'en-US';
-  type NotificationType = 'node' | 'pod' | 'workload';
+  type NotificationType = 'node' | 'pod' | 'workload' | 'issue';
   type NavigationPosition = 'left' | 'top';
   type SettingsEditorMode = 'general' | 'notifications' | 'appearance';
   type SettingsTab = 'general' | 'notifications' | 'appearance' | 'advanced' | 'audit' | 'ai-models';
@@ -89,7 +89,7 @@
     navigationPosition: 'left',
     notifications: {
       level: 'all',
-      enabledTypes: ['node', 'pod', 'workload'],
+      enabledTypes: ['node', 'pod', 'workload', 'issue'],
     },
   });
 
@@ -113,7 +113,7 @@
     const [showEvents, setShowEvents] = useState(true);
     const [showNamespaceDistribution, setShowNamespaceDistribution] = useState(true);
     const [navigationPosition, setNavigationPosition] = useState<NavigationPosition>('left');
-    const [notificationEnabledTypes, setNotificationEnabledTypes] = useState<NotificationType[]>(['node', 'pod', 'workload']);
+    const [notificationEnabledTypes, setNotificationEnabledTypes] = useState<NotificationType[]>(['node', 'pod', 'workload', 'issue']);
     const [savedSystemSettings, setSavedSystemSettings] = useState<SystemSettingsResponse>(createDefaultSystemSettings);
     const [settingsSaving, setSettingsSaving] = useState<SettingsEditorMode | ''>('');
     const [isSettingsEditorOpen, setIsSettingsEditorOpen] = useState(false);
@@ -399,7 +399,7 @@
       setShowNamespaceDistribution(settings.showNamespaceDistribution ?? true);
       setNavigationPosition(settings.navigationPosition ?? 'left');
       setNotificationOption(settings.notifications?.level ?? 'all');
-      setNotificationEnabledTypes(settings.notifications?.enabledTypes ?? ['node', 'pod', 'workload']);
+      setNotificationEnabledTypes(settings.notifications?.enabledTypes ?? ['node', 'pod', 'workload', 'issue']);
     };
     
     // 接入只读设置接口
@@ -909,6 +909,7 @@
       node: '节点状态',
       pod: 'Pod 事件',
       workload: '工作负载变更',
+      issue: 'AI 问题与复检',
     };
 
     const themeLabelMap: Record<ThemeOption, string> = {
@@ -2285,8 +2286,8 @@
                               <label className={`mb-2 block text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                                 通知类型
                               </label>
-                              <div className="grid gap-3 sm:grid-cols-3">
-                                {(['node', 'pod', 'workload'] as NotificationType[]).map((type) => {
+                              <div className="grid gap-3 sm:grid-cols-4">
+                                {(['node', 'pod', 'workload', 'issue'] as NotificationType[]).map((type) => {
                                   const checked = notificationEnabledTypes.includes(type);
                                   return (
                                     <button

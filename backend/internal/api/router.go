@@ -198,6 +198,7 @@ func NewRouter(
 		r.Get("/issues/{id}", h.wrap(h.getAIIssue))
 		r.Post("/issues/{id}/follow", h.wrap(h.followAIIssue))
 		r.Post("/issues/{id}/resolve", h.wrap(h.resolveAIIssue))
+		r.Post("/follow-up-recheck", h.wrap(h.runAIFollowUpRecheck))
 		r.Get("/risk-summary", h.wrap(h.aiRiskSummary))
 		r.Get("/memory", h.wrap(h.listAIMemories))
 		r.Get("/memory/resource", h.wrap(h.listAIMemoriesByResource))
@@ -1735,7 +1736,7 @@ func defaultSystemSettings() systemSettingsDocument {
 		NavigationPosition:        "left",
 		Notifications: notificationSettingsDocument{
 			Level:        "all",
-			EnabledTypes: []string{"node", "pod", "workload"},
+			EnabledTypes: []string{"node", "pod", "workload", "issue"},
 		},
 	}
 }
@@ -1852,7 +1853,7 @@ func normalizeNotificationSettings(input notificationSettingsDocument) (notifica
 			continue
 		}
 		switch value {
-		case "node", "pod", "workload":
+		case "node", "pod", "workload", "issue":
 		default:
 			return notificationSettingsDocument{}, fmt.Errorf("unsupported notification type: %s", value)
 		}
@@ -1863,8 +1864,12 @@ func normalizeNotificationSettings(input notificationSettingsDocument) (notifica
 		settings.EnabledTypes = append(settings.EnabledTypes, value)
 	}
 
+	if _, ok := seen["issue"]; !ok {
+		settings.EnabledTypes = append(settings.EnabledTypes, "issue")
+	}
+
 	if len(settings.EnabledTypes) == 0 {
-		settings.EnabledTypes = []string{"node", "pod", "workload"}
+		settings.EnabledTypes = []string{"node", "pod", "workload", "issue"}
 	}
 
 	return settings, nil
@@ -2121,6 +2126,8 @@ func notificationKindForAudit(entry store.AuditLogEntry) (string, bool) {
 		return "pod", true
 	case "deployments", "statefulsets", "daemonsets", "cronjobs":
 		return "workload", true
+	case "ai-issue", "ai-inspection":
+		return "issue", true
 	default:
 		return "", false
 	}
@@ -2135,6 +2142,11 @@ func notificationLevelForAudit(entry store.AuditLogEntry) string {
 
 func notificationTitleForAudit(entry store.AuditLogEntry) string {
 	switch entry.Action {
+	case "ai.followup.recheck":
+		if entry.Status == store.AuditStatusFailed {
+			return "AI 自动复检仍有风险"
+		}
+		return "AI 自动复检已恢复"
 	case "node.cordon":
 		return "节点已设为不可调度"
 	case "node.uncordon":

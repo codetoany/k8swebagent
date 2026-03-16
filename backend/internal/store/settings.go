@@ -26,7 +26,7 @@ var defaultSettingsPayloads = map[string]json.RawMessage{
   "navigationPosition": "left",
   "notifications": {
     "level": "all",
-    "enabledTypes": ["node", "pod", "workload"]
+    "enabledTypes": ["node", "pod", "workload", "issue"]
   }
 }`),
 	SettingsKeyAIModels: json.RawMessage(`[

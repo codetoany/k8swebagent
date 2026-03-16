@@ -1005,6 +1005,15 @@ export default function AIDiagnosis() {
     ) ?? null;
   }, [metricsHistory]);
 
+  const recentAvailableMetricsPoints = useMemo(() => {
+    if (!metricsHistory?.points?.length) {
+      return [];
+    }
+    return metricsHistory.points
+      .filter((point) => point.cpuUsage != null || point.memoryUsage != null || point.diskUsage != null)
+      .slice(-5);
+  }, [metricsHistory]);
+
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) {
@@ -2001,7 +2010,7 @@ export default function AIDiagnosis() {
                             </div>
                           </div>
                           <div className={`rounded-lg border px-3 py-3 text-xs leading-6 ${isDark ? 'border-gray-700 bg-gray-800/40 text-gray-300' : 'border-gray-200 bg-white text-gray-600'}`}>
-                            {metricsHistory.points.slice(-5).map((point) => (
+                            {recentAvailableMetricsPoints.map((point) => (
                               <div key={`${metricsHistory.range}-${point.time}`} className="flex items-center justify-between gap-3">
                                 <span>{point.time}</span>
                                 <span>CPU {point.cpuUsage ?? '--'}%</span>

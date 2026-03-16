@@ -58,6 +58,9 @@ type aiDiagnosisOperation struct {
 	Body           map[string]any `json:"body,omitempty"`
 	ConfirmText    string         `json:"confirmText,omitempty"`
 	SuccessMessage string         `json:"successMessage,omitempty"`
+	RiskLevel      string         `json:"riskLevel,omitempty"`
+	ApprovalRequired bool        `json:"approvalRequired,omitempty"`
+	ApprovalKeyword string       `json:"approvalKeyword,omitempty"`
 }
 
 type aiDiagnosisEvidence struct {
@@ -686,14 +689,18 @@ func buildAIDiagnosisOperation(target *aiDiagnosisTargetRef) *aiDiagnosisOperati
 			Endpoint:       fmt.Sprintf("/api/pods/%s/%s/restart", target.Namespace, target.Name),
 			ConfirmText:    fmt.Sprintf("确认重启 Pod %s 吗？", target.Label),
 			SuccessMessage: "Pod 已重启",
+			RiskLevel:      "medium",
 		}
 	case "node":
 		return &aiDiagnosisOperation{
-			Label:          "开启维护模式",
-			Method:         http.MethodPost,
-			Endpoint:       fmt.Sprintf("/api/nodes/%s/maintenance/enable", target.Name),
-			ConfirmText:    fmt.Sprintf("确认将节点 %s 设为维护模式吗？", target.Label),
-			SuccessMessage: "节点已进入维护模式",
+			Label:            "开启维护模式",
+			Method:           http.MethodPost,
+			Endpoint:         fmt.Sprintf("/api/nodes/%s/maintenance/enable", target.Name),
+			ConfirmText:      fmt.Sprintf("确认将节点 %s 设为维护模式吗？", target.Label),
+			SuccessMessage:   "节点已进入维护模式",
+			RiskLevel:        "high",
+			ApprovalRequired: true,
+			ApprovalKeyword:  "APPROVE",
 		}
 	case "workload":
 		scope := pluralWorkloadScope(target.Scope)
@@ -701,11 +708,14 @@ func buildAIDiagnosisOperation(target *aiDiagnosisTargetRef) *aiDiagnosisOperati
 			return nil
 		}
 		return &aiDiagnosisOperation{
-			Label:          "重启工作负载",
-			Method:         http.MethodPost,
-			Endpoint:       fmt.Sprintf("/api/%s/%s/%s/restart", scope, target.Namespace, target.Name),
-			ConfirmText:    fmt.Sprintf("确认重启工作负载 %s 吗？", target.Label),
-			SuccessMessage: "工作负载已触发重启",
+			Label:            "重启工作负载",
+			Method:           http.MethodPost,
+			Endpoint:         fmt.Sprintf("/api/%s/%s/%s/restart", scope, target.Namespace, target.Name),
+			ConfirmText:      fmt.Sprintf("确认重启工作负载 %s 吗？", target.Label),
+			SuccessMessage:   "工作负载已触发重启",
+			RiskLevel:        "high",
+			ApprovalRequired: true,
+			ApprovalKeyword:  "APPROVE",
 		}
 	default:
 		return nil

@@ -88,6 +88,9 @@ interface AIActionOperation {
   body?: Record<string, unknown>;
   confirmText?: string;
   successMessage?: string;
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical';
+  approvalRequired?: boolean;
+  approvalKeyword?: string;
 }
 
 interface AIDiagnosisReport {
@@ -489,6 +492,7 @@ function buildFallbackOperation(target?: AITargetRef | null): AIActionOperation 
       endpoint: `/pods/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/restart`,
       confirmText: `确认重启 Pod ${mapTargetLabel(target)} 吗？`,
       successMessage: 'Pod 已重启',
+      riskLevel: 'medium',
     };
   }
 
@@ -499,6 +503,9 @@ function buildFallbackOperation(target?: AITargetRef | null): AIActionOperation 
       endpoint: `/nodes/${encodeURIComponent(target.name)}/maintenance/enable`,
       confirmText: `确认将节点 ${mapTargetLabel(target)} 设为维护模式吗？`,
       successMessage: '节点已进入维护模式',
+      riskLevel: 'high',
+      approvalRequired: true,
+      approvalKeyword: 'APPROVE',
     };
   }
 
@@ -516,6 +523,9 @@ function buildFallbackOperation(target?: AITargetRef | null): AIActionOperation 
       endpoint: `/${scope}/${encodeURIComponent(target.namespace)}/${encodeURIComponent(target.name)}/restart`,
       confirmText: `确认重启工作负载 ${mapTargetLabel(target)} 吗？`,
       successMessage: '工作负载已触发重启',
+      riskLevel: 'high',
+      approvalRequired: true,
+      approvalKeyword: 'APPROVE',
     };
   }
 
@@ -1095,6 +1105,15 @@ export default function AIDiagnosis() {
 
     if (operation.confirmText && !window.confirm(operation.confirmText)) {
       return;
+    }
+
+    if (operation.approvalRequired) {
+      const keyword = operation.approvalKeyword || 'APPROVE';
+      const approvalInput = window.prompt(`这是高风险操作，请输入 ${keyword} 确认执行。`);
+      if ((approvalInput || '').trim().toUpperCase() !== keyword.toUpperCase()) {
+        toast.warning('未通过审批确认，本次操作已取消');
+        return;
+      }
     }
 
     const endpoint = trimApiEndpoint(operation.endpoint);

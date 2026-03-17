@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,10 +17,13 @@ type aiFollowUpRecheckRequest struct {
 }
 
 type aiFollowUpRecheckResponse struct {
-	Outcome       string               `json:"outcome"`
-	Summary       string               `json:"summary"`
-	Inspection    *aiInspectionResult  `json:"inspection,omitempty"`
-	RelatedIssues []aiInspectionIssue `json:"relatedIssues,omitempty"`
+	Outcome           string              `json:"outcome"`
+	Summary           string              `json:"summary"`
+	Inspection        *aiInspectionResult `json:"inspection,omitempty"`
+	RelatedIssues     []aiInspectionIssue `json:"relatedIssues,omitempty"`
+	PersistentCount   int                 `json:"persistentCount,omitempty"`
+	RecoveredCount    int                 `json:"recoveredCount,omitempty"`
+	TrackedIssueCount int                 `json:"trackedIssueCount,omitempty"`
 }
 
 func (h *handler) runAIFollowUpRecheck(w http.ResponseWriter, r *http.Request) error {
@@ -74,6 +78,20 @@ func (h *handler) runAIFollowUpRecheck(w http.ResponseWriter, r *http.Request) e
 	}
 
 	relatedIssues := matchInspectionIssues(result.Issues, payload.Target)
+	trackedIssueCount := 0
+	recoveredCount := 0
+	persistentCount := len(relatedIssues)
+	if h.aiIssueStore != nil && payload.Target != nil {
+		matchedIssues, matchErr := h.loadFollowUpMatchedIssues(r.Context(), result.ClusterID, payload.Target)
+		if matchErr == nil {
+			trackedIssueCount = h.syncFollowUpIssueWorkflow(r.Context(), matchedIssues)
+			recoveredCount = countRecoveredFollowUpIssues(matchedIssues)
+		}
+		if recoveredCount > 0 {
+			persistentCount = maxIntValue(persistentCount-recoveredCount, 0)
+		}
+	}
+
 	outcome := "recovered"
 	if len(relatedIssues) > 0 {
 		outcome = "persistent"
@@ -82,7 +100,7 @@ func (h *handler) runAIFollowUpRecheck(w http.ResponseWriter, r *http.Request) e
 		outcome = "attention"
 	}
 
-	summary := buildFollowUpSummary(payload, outcome, relatedIssues, result)
+	summary := buildFollowUpSummary(payload, outcome, relatedIssues, trackedIssueCount, recoveredCount)
 	auditStatus := store.AuditStatusSuccess
 	if outcome == "persistent" {
 		auditStatus = store.AuditStatusFailed
@@ -98,12 +116,14 @@ func (h *handler) runAIFollowUpRecheck(w http.ResponseWriter, r *http.Request) e
 		Status:       auditStatus,
 		Message:      summary,
 		Details: map[string]any{
-			"outcome":        outcome,
-			"inspectionId":   result.ID,
-			"actionTitle":    strings.TrimSpace(payload.ActionTitle),
-			"operationLabel": strings.TrimSpace(payload.OperationLabel),
-			"target":         payload.Target,
-			"relatedIssues":  relatedIssues,
+			"outcome":           outcome,
+			"inspectionId":      result.ID,
+			"actionTitle":       strings.TrimSpace(payload.ActionTitle),
+			"operationLabel":    strings.TrimSpace(payload.OperationLabel),
+			"target":            payload.Target,
+			"relatedIssues":     relatedIssues,
+			"trackedIssueCount": trackedIssueCount,
+			"recoveredCount":    recoveredCount,
 		},
 	})
 
@@ -125,20 +145,25 @@ func (h *handler) runAIFollowUpRecheck(w http.ResponseWriter, r *http.Request) e
 			Title:             "AI 自动复检：" + coalesceString(resourceName, "目标资源"),
 			Summary:           summary,
 			Payload: map[string]any{
-				"outcome":       outcome,
-				"inspectionId":  result.ID,
-				"target":        payload.Target,
-				"relatedIssues": relatedIssues,
+				"outcome":           outcome,
+				"inspectionId":      result.ID,
+				"target":            payload.Target,
+				"relatedIssues":     relatedIssues,
+				"trackedIssueCount": trackedIssueCount,
+				"recoveredCount":    recoveredCount,
 			},
 			Tags: []string{"follow-up", outcome},
 		})
 	}
 
 	writeJSON(w, http.StatusOK, aiFollowUpRecheckResponse{
-		Outcome:       outcome,
-		Summary:       summary,
-		Inspection:    result,
-		RelatedIssues: relatedIssues,
+		Outcome:           outcome,
+		Summary:           summary,
+		Inspection:        result,
+		RelatedIssues:     relatedIssues,
+		PersistentCount:   persistentCount,
+		RecoveredCount:    recoveredCount,
+		TrackedIssueCount: trackedIssueCount,
 	})
 	return nil
 }
@@ -187,7 +212,7 @@ func aiTargetsEqual(left *aiDiagnosisTargetRef, right *aiDiagnosisTargetRef) boo
 		strings.EqualFold(strings.TrimSpace(left.Name), strings.TrimSpace(right.Name))
 }
 
-func buildFollowUpSummary(payload aiFollowUpRecheckRequest, outcome string, relatedIssues []aiInspectionIssue, inspection *aiInspectionResult) string {
+func buildFollowUpSummary(payload aiFollowUpRecheckRequest, outcome string, relatedIssues []aiInspectionIssue, trackedIssueCount int, recoveredCount int) string {
 	targetLabel := mapTargetRefLabel(payload.Target)
 	actionLabel := coalesceString(strings.TrimSpace(payload.OperationLabel), strings.TrimSpace(payload.ActionTitle))
 	if actionLabel == "" {
@@ -196,15 +221,74 @@ func buildFollowUpSummary(payload aiFollowUpRecheckRequest, outcome string, rela
 
 	switch outcome {
 	case "persistent":
-		return fmt.Sprintf("%s后已自动复检，但 %s 仍存在 %d 条相关风险，需要继续排查。", actionLabel, targetLabel, len(relatedIssues))
+		if trackedIssueCount > 0 {
+			return fmt.Sprintf("%s 后已自动复检，但 %s 仍存在 %d 条相关风险，已自动加入 %d 条持续跟踪卡片。", actionLabel, targetLabel, len(relatedIssues), trackedIssueCount)
+		}
+		return fmt.Sprintf("%s 后已自动复检，但 %s 仍存在 %d 条相关风险，需要继续排查。", actionLabel, targetLabel, len(relatedIssues))
 	case "attention":
-		return actionLabel + "后已自动复检，当前集群仍有待关注问题，请查看问题中心确认是否已恢复。"
+		return actionLabel + " 后已自动复检，当前集群仍有待关注问题，请查看问题中心确认是否已恢复。"
 	default:
 		if targetLabel == "" {
-			return actionLabel + "后已自动复检，暂未发现需要继续处理的相关风险。"
+			return actionLabel + " 后已自动复检，暂未发现需要继续处理的相关风险。"
 		}
-		return actionLabel + "后已自动复检，" + targetLabel + " 暂未再出现相关风险。"
+		if recoveredCount > 0 {
+			return fmt.Sprintf("%s 后已自动复检，%s 暂未再出现相关风险，其中 %d 条旧问题已标记为自动恢复。", actionLabel, targetLabel, recoveredCount)
+		}
+		return actionLabel + " 后已自动复检，" + targetLabel + " 暂未再出现相关风险。"
 	}
+}
+
+func (h *handler) loadFollowUpMatchedIssues(ctx context.Context, clusterID string, target *aiDiagnosisTargetRef) ([]store.AIIssue, error) {
+	if h.aiIssueStore == nil || target == nil {
+		return nil, nil
+	}
+
+	result, err := h.aiIssueStore.List(ctx, store.AIIssueFilter{
+		ClusterID: clusterID,
+		Page:      1,
+		PageSize:  100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make([]store.AIIssue, 0, len(result.Items))
+	for _, item := range result.Items {
+		var issueTarget *aiDiagnosisTargetRef
+		if err := decodeJSONBytes(item.Target, &issueTarget); err != nil {
+			continue
+		}
+		if aiTargetsEqual(issueTarget, target) {
+			matched = append(matched, item)
+		}
+	}
+	return matched, nil
+}
+
+func (h *handler) syncFollowUpIssueWorkflow(ctx context.Context, items []store.AIIssue) int {
+	if h.aiIssueStore == nil {
+		return 0
+	}
+
+	updated := 0
+	for _, item := range items {
+		if item.Status == store.AIIssueStatusNew || item.Status == store.AIIssueStatusAcknowledged {
+			if _, err := h.aiIssueStore.UpdateStatus(ctx, item.ID, store.AIIssueStatusFollowing, "AI 自动复检后继续跟踪"); err == nil {
+				updated++
+			}
+		}
+	}
+	return updated
+}
+
+func countRecoveredFollowUpIssues(items []store.AIIssue) int {
+	count := 0
+	for _, item := range items {
+		if item.Status == store.AIIssueStatusRecovered || item.Status == store.AIIssueStatusResolved {
+			count++
+		}
+	}
+	return count
 }
 
 func mapTargetRefLabel(target *aiDiagnosisTargetRef) string {
@@ -248,4 +332,11 @@ func resourceMetaFromTarget(target *aiDiagnosisTargetRef) (string, string, strin
 	default:
 		return "", name, namespace
 	}
+}
+
+func maxIntValue(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }

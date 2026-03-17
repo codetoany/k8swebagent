@@ -39,17 +39,30 @@ func (h *handler) aiMetricsHistory(w http.ResponseWriter, r *http.Request) error
 		rangeValue = string(service.ResourceUsageRangeToday)
 	}
 
-	payload, err := h.dashboardService.ResourceUsagePayload(r.Context(), clusterID, rangeValue)
-	if err != nil {
-		payload, err = h.snapshotResourceUsagePayload(r, rangeValue)
-		if err != nil {
-			return err
-		}
-	}
+	resourceRange := service.ResourceUsageRange(strings.ToLower(rangeValue))
+	var (
+		points []service.ResourceUsagePoint
+		err    error
+	)
 
-	var points []service.ResourceUsagePoint
-	if err := json.Unmarshal(payload, &points); err != nil {
-		return err
+	if h.observability != nil && h.observability.HasPrometheus() {
+		points, err = h.observability.QueryMetricsHistory(r.Context(), resourceRange)
+	}
+	if err != nil || len(points) == 0 {
+		payload, payloadErr := h.dashboardService.ResourceUsagePayload(r.Context(), clusterID, rangeValue)
+		if payloadErr != nil {
+			payload, payloadErr = h.snapshotResourceUsagePayload(r, rangeValue)
+			if payloadErr != nil {
+				if err != nil {
+					return err
+				}
+				return payloadErr
+			}
+		}
+
+		if unmarshalErr := json.Unmarshal(payload, &points); unmarshalErr != nil {
+			return unmarshalErr
+		}
 	}
 
 	writeJSON(w, http.StatusOK, aiMetricsHistoryResponse{
@@ -89,39 +102,47 @@ func (h *handler) aiAggregatedLogs(w http.ResponseWriter, r *http.Request) error
 
 	selected := selectAggregatedLogPods(pods, namespace, name, scope, limit)
 	items := make([]aiAggregatedLogItem, 0, len(selected))
-	for _, pod := range selected {
-		logPayload, logErr := h.podsService.LogsPayload(r.Context(), clusterID, pod.Namespace, pod.Name)
-		if logErr != nil {
-			logPayload, logErr = h.snapshotPodLogsPayload(r, pod.Namespace, pod.Name)
+	if h.observability != nil && h.observability.HasLoki() {
+		logItems, logErr := h.observability.QueryAggregatedLogs(r.Context(), selected, limit)
+		if logErr == nil && len(logItems) > 0 {
+			items = logItems
+		}
+	}
+	if len(items) == 0 {
+		for _, pod := range selected {
+			logPayload, logErr := h.podsService.LogsPayload(r.Context(), clusterID, pod.Namespace, pod.Name)
 			if logErr != nil {
+				logPayload, logErr = h.snapshotPodLogsPayload(r, pod.Namespace, pod.Name)
+				if logErr != nil {
+					continue
+				}
+			}
+
+			var entries []service.PodLogEntry
+			if err := json.Unmarshal(logPayload, &entries); err != nil {
 				continue
 			}
-		}
 
-		var entries []service.PodLogEntry
-		if err := json.Unmarshal(logPayload, &entries); err != nil {
-			continue
-		}
-
-		snippets := make([]string, 0, 3)
-		for index := len(entries) - 1; index >= 0 && len(snippets) < 3; index-- {
-			message := strings.TrimSpace(entries[index].Message)
-			if message == "" {
+			snippets := make([]string, 0, 3)
+			for index := len(entries) - 1; index >= 0 && len(snippets) < 3; index-- {
+				message := strings.TrimSpace(entries[index].Message)
+				if message == "" {
+					continue
+				}
+				snippets = append(snippets, truncateText(message, 160))
+			}
+			if len(snippets) == 0 {
 				continue
 			}
-			snippets = append(snippets, truncateText(message, 160))
-		}
-		if len(snippets) == 0 {
-			continue
-		}
 
-		items = append(items, aiAggregatedLogItem{
-			Namespace: pod.Namespace,
-			Name:      pod.Name,
-			Status:    pod.Status,
-			Node:      pod.Node,
-			Snippets:  snippets,
-		})
+			items = append(items, aiAggregatedLogItem{
+				Namespace: pod.Namespace,
+				Name:      pod.Name,
+				Status:    pod.Status,
+				Node:      pod.Node,
+				Snippets:  snippets,
+			})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, aiAggregatedLogsResponse{

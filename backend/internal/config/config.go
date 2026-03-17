@@ -41,14 +41,14 @@ type AIConfig struct {
 }
 
 type ObservabilityConfig struct {
-	TimeoutSeconds           int
-	PrometheusURL            string
-	PrometheusToken          string
-	PrometheusCPUQuery       string
-	PrometheusMemoryQuery    string
-	LokiURL                  string
-	LokiToken                string
-	LokiQueryTemplate        string
+	TimeoutSeconds        int
+	PrometheusURL         string
+	PrometheusToken       string
+	PrometheusCPUQuery    string
+	PrometheusMemoryQuery string
+	LokiURL               string
+	LokiToken             string
+	LokiQueryTemplate     string
 }
 
 type Config struct {

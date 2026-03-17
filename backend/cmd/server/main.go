@@ -92,7 +92,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiTemplateStore, aiMemoryStore, aiInspectionStore, aiIssueStore, aiInspectionRunner, k8sManager, redisCache),
+		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiTemplateStore, aiMemoryStore, aiInspectionStore, aiIssueStore, aiInspectionRunner, k8sManager, redisCache, cfg.Observability),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

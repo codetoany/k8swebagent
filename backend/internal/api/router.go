@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"k8s-agent-backend/internal/cache"
+	"k8s-agent-backend/internal/config"
 	"k8s-agent-backend/internal/k8s"
 	"k8s-agent-backend/internal/service"
 	"k8s-agent-backend/internal/store"
@@ -77,6 +78,7 @@ func NewRouter(
 	aiInspectionRunner *AIInspectionRunner,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
+	observabilityCfg config.ObservabilityConfig,
 ) http.Handler {
 	h := &handler{
 		store:              snapshotStore,
@@ -105,7 +107,7 @@ func NewRouter(
 		yamlService:        service.NewYAMLService(k8sManager),
 		applyService:       service.NewApplyService(k8sManager),
 		llmClient:          newLLMClient(90 * time.Second),
-		observability:      newObservabilityClient(config.Load().Observability),
+		observability:      newObservabilityClient(observabilityCfg),
 	}
 
 	router := chi.NewRouter()

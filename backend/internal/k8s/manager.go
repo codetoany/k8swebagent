@@ -10,6 +10,7 @@ import (
 
 	"k8s-agent-backend/internal/store"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -172,6 +173,27 @@ func (m *Manager) Client(ctx context.Context, clusterID string) (*store.Cluster,
 	return cluster, clientset, nil
 }
 
+func (m *Manager) DefaultDynamicClient(ctx context.Context) (*store.Cluster, dynamic.Interface, error) {
+	return m.DynamicClient(ctx, "")
+}
+
+func (m *Manager) DynamicClient(ctx context.Context, clusterID string) (*store.Cluster, dynamic.Interface, error) {
+	cluster, err := m.resolveCluster(ctx, clusterID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !cluster.IsEnabled {
+		return cluster, nil, ErrClusterDisabled
+	}
+
+	dynClient, err := m.dynamicClientForCluster(*cluster)
+	if err != nil {
+		return cluster, nil, err
+	}
+
+	return cluster, dynClient, nil
+}
+
 func (m *Manager) resolveCluster(ctx context.Context, clusterID string) (*store.Cluster, error) {
 	if strings.TrimSpace(clusterID) != "" {
 		cluster, err := m.clusterStore.GetByID(ctx, clusterID)
@@ -196,6 +218,14 @@ func (m *Manager) resolveCluster(ctx context.Context, clusterID string) (*store.
 	return cluster, nil
 }
 
+// BuildConfig 返回给定集群的 *rest.Config，供外部包（如 exec）使用
+func (m *Manager) BuildConfig(cluster *store.Cluster) (*rest.Config, error) {
+	if cluster == nil {
+		return nil, errors.New("cluster is nil")
+	}
+	return m.buildRESTConfig(*cluster)
+}
+
 func (m *Manager) clientForCluster(cluster store.Cluster) (*kubernetes.Clientset, error) {
 	restConfig, err := m.buildRESTConfig(cluster)
 	if err != nil {
@@ -203,6 +233,15 @@ func (m *Manager) clientForCluster(cluster store.Cluster) (*kubernetes.Clientset
 	}
 
 	return kubernetes.NewForConfig(restConfig)
+}
+
+func (m *Manager) dynamicClientForCluster(cluster store.Cluster) (dynamic.Interface, error) {
+	restConfig, err := m.buildRESTConfig(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return dynamic.NewForConfig(restConfig)
 }
 
 func (m *Manager) buildRESTConfig(cluster store.Cluster) (*rest.Config, error) {

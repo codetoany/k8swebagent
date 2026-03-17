@@ -19,6 +19,7 @@ import { namespacesAPI, podsAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
 import NotificationCenter from '@/components/NotificationCenter';
+import ResourceNavGroup from '@/components/ResourceNavGroup';
 
 const podsData: any[] = [];
 const namespaces = ['全部'];
@@ -579,9 +580,7 @@ const Pods = () => {
             </div>
             <div className="p-4 space-y-1">
                {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
-               {renderNavItem(<Server size={20} />, '节点', '/nodes')}
-               {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
-               {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+               <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
                {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                {renderNavItem(<Settings size={20} />, '设置', '/settings')}
             </div>
@@ -597,9 +596,7 @@ const Pods = () => {
         </div>
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
-          {renderNavItem(<Server size={20} />, '节点', '/nodes')}
-          {renderNavItem(<Database size={20} />, 'Pods', '/pods', true)}
-          {renderNavItem(<Network size={20} />, '工作负载', '/workloads')}
+          <ResourceNavGroup isDark={theme === 'dark'} />
           {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}

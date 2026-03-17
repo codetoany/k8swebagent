@@ -40,7 +40,16 @@ type handler struct {
 	podsService        *service.PodsService
 	workloadsService   *service.WorkloadsService
 	namespacesService  *service.NamespacesService
+	servicesService    *service.ServicesService
+	ingressesService   *service.IngressesService
+	configMapsService  *service.ConfigMapsService
+	secretsService     *service.SecretsService
+	storageService     *service.StorageService
+	eventsService      *service.EventsService
+	yamlService        *service.YAMLService
+	applyService       *service.ApplyService
 	llmClient          *llmClient
+	observability      *observabilityClient
 }
 
 type routeHandler func(http.ResponseWriter, *http.Request) error
@@ -87,7 +96,16 @@ func NewRouter(
 		podsService:        service.NewPodsService(snapshotStore, k8sManager),
 		workloadsService:   service.NewWorkloadsService(snapshotStore, k8sManager),
 		namespacesService:  service.NewNamespacesService(snapshotStore, k8sManager),
+		servicesService:    service.NewServicesService(snapshotStore, k8sManager),
+		ingressesService:   service.NewIngressesService(snapshotStore, k8sManager),
+		configMapsService:  service.NewConfigMapsService(snapshotStore, k8sManager),
+		secretsService:     service.NewSecretsService(snapshotStore, k8sManager),
+		storageService:     service.NewStorageService(snapshotStore, k8sManager),
+		eventsService:      service.NewEventsService(snapshotStore, k8sManager),
+		yamlService:        service.NewYAMLService(k8sManager),
+		applyService:       service.NewApplyService(k8sManager),
 		llmClient:          newLLMClient(90 * time.Second),
+		observability:      newObservabilityClient(config.Load().Observability),
 	}
 
 	router := chi.NewRouter()
@@ -144,6 +162,7 @@ func NewRouter(
 		r.Post("/{namespace}/{name}/restart", h.wrap(h.restartPod))
 		r.Get("/{namespace}/{name}/logs", h.wrap(h.podLogs))
 		r.Get("/{namespace}/{name}/metrics", h.wrap(h.podMetrics))
+		r.Post("/{namespace}/{name}/exec", h.podExec)
 		r.Get("/{namespace}/{name}", h.wrap(h.podDetail))
 		r.Delete("/{namespace}/{name}", h.wrap(h.deletePod))
 	})
@@ -168,12 +187,63 @@ func NewRouter(
 		r.Get("/cronjobs", h.wrap(h.listWorkload("cronjobs")))
 		r.Get("/cronjobs/{namespace}/{name}", h.wrap(h.workloadDetail("cronjobs")))
 		r.Delete("/cronjobs/{namespace}/{name}", h.wrap(h.deleteWorkload("cronjobs")))
+		r.Get("/jobs", h.wrap(h.listWorkload("jobs")))
+		r.Get("/jobs/{namespace}/{name}", h.wrap(h.workloadDetail("jobs")))
+		r.Delete("/jobs/{namespace}/{name}", h.wrap(h.deleteWorkload("jobs")))
 	})
 
 	router.Route("/api/namespaces", func(r chi.Router) {
 		r.Get("/", h.wrap(h.listNamespaces))
 		r.Get("/{name}", h.wrap(h.namespaceDetail))
 	})
+
+	router.Route("/api/services", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listServices))
+		r.Get("/{namespace}/{name}", h.wrap(h.serviceDetail))
+		r.Delete("/{namespace}/{name}", h.wrap(h.deleteService))
+	})
+
+	router.Route("/api/ingresses", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listIngresses))
+		r.Get("/{namespace}/{name}", h.wrap(h.ingressDetail))
+		r.Delete("/{namespace}/{name}", h.wrap(h.deleteIngress))
+	})
+
+	router.Route("/api/configmaps", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listConfigMaps))
+		r.Get("/{namespace}/{name}", h.wrap(h.configMapDetail))
+		r.Delete("/{namespace}/{name}", h.wrap(h.deleteConfigMap))
+	})
+
+	router.Route("/api/secrets", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listSecrets))
+		r.Get("/{namespace}/{name}", h.wrap(h.secretDetail))
+	})
+
+	router.Route("/api/pvcs", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listPVCs))
+		r.Get("/{namespace}/{name}", h.wrap(h.pvcDetail))
+	})
+
+	router.Route("/api/pvs", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listPVs))
+		r.Get("/{name}", h.wrap(h.pvDetail))
+	})
+
+	router.Route("/api/storageclasses", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listStorageClasses))
+		r.Get("/{name}", h.wrap(h.storageClassDetail))
+	})
+
+	router.Route("/api/events", func(r chi.Router) {
+		r.Get("/", h.wrap(h.listEvents))
+	})
+
+	router.Route("/api/yaml", func(r chi.Router) {
+		r.Get("/", h.wrap(h.yamlDetail))
+	})
+
+	router.Post("/api/apply", h.wrap(h.applyYAML))
 
 	router.Route("/api/settings", func(r chi.Router) {
 		r.Get("/", h.wrap(h.getSettings))
@@ -249,6 +319,61 @@ func (h *handler) wrap(next routeHandler) http.HandlerFunc {
 				"message": "Internal server error",
 			})
 		}
+	}
+}
+
+func (h *handler) yamlDetail(w http.ResponseWriter, r *http.Request) error {
+	kind := r.URL.Query().Get("kind")
+	version := r.URL.Query().Get("version")
+	namespace := r.URL.Query().Get("namespace")
+	name := r.URL.Query().Get("name")
+
+	if kind == "" || version == "" || name == "" {
+		return newHTTPError(http.StatusBadRequest, "Missing required query parameters: kind, version, name")
+	}
+
+	payload, err := h.yamlService.GetResourceYAML(r.Context(), requestedClusterID(r), kind, version, namespace, name)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(payload)
+	return err
+}
+
+// applyYAML 处理 POST /api/apply
+func (h *handler) applyYAML(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		YAML string `json:"yaml"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		return newHTTPError(http.StatusBadRequest, "无效的请求体")
+	}
+	if strings.TrimSpace(body.YAML) == "" {
+		return newHTTPError(http.StatusBadRequest, "yaml 字段不能为空")
+	}
+
+	payload, err := h.applyService.ApplyYAML(r.Context(), requestedClusterID(r), body.YAML)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(payload)
+	return err
+}
+
+// podExec 处理 GET /api/pods/{namespace}/{name}/exec (WebSocket)
+func (h *handler) podExec(w http.ResponseWriter, r *http.Request) {
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	container := strings.TrimSpace(r.URL.Query().Get("container"))
+	clusterID := requestedClusterID(r)
+
+	// 执行 exec 流
+	if err := execPodStream(r.Context(), h.k8sManager, clusterID, namespace, name, container, w, r); err != nil {
+		log.Printf("pod exec error %s/%s: %v", namespace, name, err)
 	}
 }
 
@@ -1324,6 +1449,286 @@ func (h *handler) namespaceDetail(w http.ResponseWriter, r *http.Request) error 
 		}
 
 		return payload, nil
+	})
+}
+
+// ── Services ──
+
+func (h *handler) listServices(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "services:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.servicesService.ListPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) serviceDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("services:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.servicesService.DetailPayload(ctx, clusterID, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrServiceNotFound) || errors.Is(err, service.ErrWorkloadNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.ServiceNotFoundMessage(namespace, name))
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+func (h *handler) deleteService(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	err := h.servicesService.Delete(r.Context(), clusterID, namespace, name)
+	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action: "service.delete", ResourceType: "service", ResourceName: name,
+			Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusFailed,
+			Message: errorMessageForAudit(err),
+		})
+		switch {
+		case errors.Is(err, service.ErrServiceNotFound):
+			return newHTTPError(http.StatusNotFound, service.ServiceNotFoundMessage(namespace, name))
+		case errors.Is(err, service.ErrServiceLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action: "service.delete", ResourceType: "service", ResourceName: name,
+		Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusSuccess,
+		Message: fmt.Sprintf("删除 Service %s/%s", namespace, name),
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "ok"})
+	return nil
+}
+
+// ── Ingresses ──
+
+func (h *handler) listIngresses(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "ingresses:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.ingressesService.ListPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) ingressDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("ingresses:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.ingressesService.DetailPayload(ctx, clusterID, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrIngressNotFound) || errors.Is(err, service.ErrWorkloadNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.IngressNotFoundMessage(namespace, name))
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+func (h *handler) deleteIngress(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	err := h.ingressesService.Delete(r.Context(), clusterID, namespace, name)
+	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action: "ingress.delete", ResourceType: "ingress", ResourceName: name,
+			Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusFailed,
+			Message: errorMessageForAudit(err),
+		})
+		switch {
+		case errors.Is(err, service.ErrIngressNotFound):
+			return newHTTPError(http.StatusNotFound, service.IngressNotFoundMessage(namespace, name))
+		case errors.Is(err, service.ErrIngressLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action: "ingress.delete", ResourceType: "ingress", ResourceName: name,
+		Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusSuccess,
+		Message: fmt.Sprintf("删除 Ingress %s/%s", namespace, name),
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "ok"})
+	return nil
+}
+
+// ── ConfigMaps ──
+
+func (h *handler) listConfigMaps(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "configmaps:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.configMapsService.ListPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) configMapDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("configmaps:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.configMapsService.DetailPayload(ctx, clusterID, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrConfigMapNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.ConfigMapNotFoundMessage(namespace, name))
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+func (h *handler) deleteConfigMap(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	err := h.configMapsService.Delete(r.Context(), clusterID, namespace, name)
+	if err != nil {
+		h.recordAudit(r.Context(), r, store.AuditLogInput{
+			Action: "configmap.delete", ResourceType: "configmap", ResourceName: name,
+			Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusFailed,
+			Message: errorMessageForAudit(err),
+		})
+		switch {
+		case errors.Is(err, service.ErrConfigMapNotFound):
+			return newHTTPError(http.StatusNotFound, service.ConfigMapNotFoundMessage(namespace, name))
+		case errors.Is(err, service.ErrConfigMapLiveClusterNeeded):
+			return newHTTPError(http.StatusBadRequest, "当前集群未连接真实 Kubernetes，暂不支持写操作")
+		default:
+			return err
+		}
+	}
+
+	h.invalidateReadonlyCache(r.Context(), clusterID)
+	h.recordAudit(r.Context(), r, store.AuditLogInput{
+		Action: "configmap.delete", ResourceType: "configmap", ResourceName: name,
+		Namespace: namespace, ClusterID: clusterID, Status: store.AuditStatusSuccess,
+		Message: fmt.Sprintf("删除 ConfigMap %s/%s", namespace, name),
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "ok"})
+	return nil
+}
+
+// ── Secrets ──
+
+func (h *handler) listSecrets(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "secrets:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.secretsService.ListPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) secretDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("secrets:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.secretsService.DetailPayload(ctx, clusterID, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrSecretNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, service.SecretNotFoundMessage(namespace, name))
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+// ── PVCs ──
+
+func (h *handler) listPVCs(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "pvcs:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.storageService.ListPVCPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) pvcDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	namespace := chi.URLParam(r, "namespace")
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pvcs:detail:%s:%s", namespace, name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.storageService.PVCDetailPayload(ctx, clusterID, namespace, name)
+		if err != nil {
+			if errors.Is(err, service.ErrPVCNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, "PVC not found")
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+// ── PVs ──
+
+func (h *handler) listPVs(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "pvs:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.storageService.ListPVPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) pvDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("pvs:detail:%s", name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.storageService.PVDetailPayload(ctx, clusterID, name)
+		if err != nil {
+			if errors.Is(err, service.ErrPVNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, "PV not found")
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+// ── StorageClasses ──
+
+func (h *handler) listStorageClasses(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	return h.respondWithCachedPayload(w, r, "storageclasses:list", readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.storageService.ListStorageClassPayload(ctx, clusterID)
+	})
+}
+
+func (h *handler) storageClassDetail(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	name := chi.URLParam(r, "name")
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("storageclasses:detail:%s", name), readonlyDefaultTTL, func(ctx context.Context) (json.RawMessage, error) {
+		payload, err := h.storageService.StorageClassDetailPayload(ctx, clusterID, name)
+		if err != nil {
+			if errors.Is(err, service.ErrStorageClassNotFound) {
+				return nil, newHTTPError(http.StatusNotFound, "StorageClass not found")
+			}
+			return nil, err
+		}
+		return payload, nil
+	})
+}
+
+// ── Events ──
+
+func (h *handler) listEvents(w http.ResponseWriter, r *http.Request) error {
+	clusterID := requestedClusterID(r)
+	filter := service.EventFilter{
+		Namespace:          r.URL.Query().Get("namespace"),
+		Type:               r.URL.Query().Get("type"),
+		InvolvedObjectKind: r.URL.Query().Get("kind"),
+	}
+	return h.respondWithCachedPayload(w, r, fmt.Sprintf("events:list:%s:%s:%s", filter.Namespace, filter.Type, filter.InvolvedObjectKind), readonlyEventsTTL, func(ctx context.Context) (json.RawMessage, error) {
+		return h.eventsService.ListPayload(ctx, clusterID, filter)
 	})
 }
 

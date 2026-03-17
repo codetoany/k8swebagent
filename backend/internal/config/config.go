@@ -40,12 +40,24 @@ type AIConfig struct {
 	InspectionStartupDelaySeconds int
 }
 
+type ObservabilityConfig struct {
+	TimeoutSeconds           int
+	PrometheusURL            string
+	PrometheusToken          string
+	PrometheusCPUQuery       string
+	PrometheusMemoryQuery    string
+	LokiURL                  string
+	LokiToken                string
+	LokiQueryTemplate        string
+}
+
 type Config struct {
-	Port  int
-	PG    PGConfig
-	Redis RedisConfig
-	K8s   K8sConfig
-	AI    AIConfig
+	Port          int
+	PG            PGConfig
+	Redis         RedisConfig
+	K8s           K8sConfig
+	AI            AIConfig
+	Observability ObservabilityConfig
 }
 
 func Load() Config {
@@ -79,6 +91,16 @@ func Load() Config {
 		AI: AIConfig{
 			InspectionIntervalSeconds:     toInt(os.Getenv("AI_INSPECTION_INTERVAL_SECONDS"), 600),
 			InspectionStartupDelaySeconds: toInt(os.Getenv("AI_INSPECTION_STARTUP_DELAY_SECONDS"), 15),
+		},
+		Observability: ObservabilityConfig{
+			TimeoutSeconds:        toInt(os.Getenv("OBSERVABILITY_TIMEOUT_SECONDS"), 15),
+			PrometheusURL:         toString(os.Getenv("OBSERVABILITY_PROMETHEUS_URL"), ""),
+			PrometheusToken:       toString(os.Getenv("OBSERVABILITY_PROMETHEUS_TOKEN"), ""),
+			PrometheusCPUQuery:    toString(os.Getenv("OBSERVABILITY_PROMETHEUS_CPU_QUERY"), `avg(100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))`),
+			PrometheusMemoryQuery: toString(os.Getenv("OBSERVABILITY_PROMETHEUS_MEMORY_QUERY"), `100 * (1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)))`),
+			LokiURL:               toString(os.Getenv("OBSERVABILITY_LOKI_URL"), ""),
+			LokiToken:             toString(os.Getenv("OBSERVABILITY_LOKI_TOKEN"), ""),
+			LokiQueryTemplate:     toString(os.Getenv("OBSERVABILITY_LOKI_QUERY_TEMPLATE"), `{namespace="%s", pod=~"%s.*"}`),
 		},
 	}
 }

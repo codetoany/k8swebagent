@@ -254,3 +254,134 @@ export interface PagedResult<T> {
   perPage: number;
   totalPages: number;
 }
+
+// Service 类型
+export interface ServiceItem {
+  id: string;
+  name: string;
+  namespace: string;
+  type: string;
+  clusterIP: string;
+  externalIPs: string[];
+  ports: ServicePort[];
+  selector: Record<string, string>;
+  age: string;
+  labels: Record<string, string>;
+  sessionAffinity: string;
+  loadBalancerIP?: string;
+}
+
+export interface ServicePort {
+  name: string;
+  protocol: string;
+  port: number;
+  targetPort: string;
+  nodePort?: number;
+}
+
+// Ingress 类型
+export interface IngressItem {
+  id: string;
+  name: string;
+  namespace: string;
+  ingressClass: string;
+  rules: IngressRule[];
+  tls: IngressTLS[];
+  age: string;
+  labels: Record<string, string>;
+}
+
+export interface IngressRule {
+  host: string;
+  paths: IngressPath[];
+}
+
+export interface IngressPath {
+  path: string;
+  pathType: string;
+  backend: { serviceName: string; servicePort: string };
+}
+
+export interface IngressTLS {
+  hosts: string[];
+  secretName: string;
+}
+
+// ConfigMap 类型
+export interface ConfigMapItem {
+  id: string;
+  name: string;
+  namespace: string;
+  dataCount: number;
+  age: string;
+  labels: Record<string, string>;
+  data?: Record<string, string>;
+}
+
+// Secret 类型
+export interface SecretItem {
+  id: string;
+  name: string;
+  namespace: string;
+  type: string;
+  dataCount: number;
+  age: string;
+  labels: Record<string, string>;
+  dataKeys?: string[];
+}
+
+// 存储类型
+export interface PVCItem {
+  id: string;
+  name: string;
+  namespace: string;
+  status: string;
+  volume: string;
+  capacity: string;
+  accessModes: string[];
+  storageClassName: string;
+  age: string;
+  labels: Record<string, string>;
+}
+
+export interface PVItem {
+  id: string;
+  name: string;
+  status: string;
+  capacity: string;
+  accessModes: string[];
+  reclaimPolicy: string;
+  storageClassName: string;
+  claim: string;
+  age: string;
+  labels: Record<string, string>;
+}
+
+export interface StorageClassItem {
+  id: string;
+  name: string;
+  provisioner: string;
+  reclaimPolicy: string;
+  volumeBindingMode: string;
+  isDefault: boolean;
+  age: string;
+  labels: Record<string, string>;
+}
+
+// Event 类型（独立页面）
+export interface EventItem {
+  id: string;
+  type: 'warning' | 'info' | 'error' | 'success';
+  reason: string;
+  message: string;
+  namespace: string;
+  involvedObject: {
+    kind: string;
+    name: string;
+    namespace?: string;
+  };
+  count: number;
+  firstTimestamp: string;
+  lastTimestamp: string;
+  source: string;
+}

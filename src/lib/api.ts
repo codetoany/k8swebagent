@@ -57,6 +57,56 @@ export const namespacesAPI = {
   getNamespaceDetail: "/namespaces/:name",
 };
 
+export const servicesAPI = {
+  list: "/services",
+  detail: "/services/:namespace/:name",
+  delete: "/services/:namespace/:name",
+};
+
+export const ingressesAPI = {
+  list: "/ingresses",
+  detail: "/ingresses/:namespace/:name",
+  delete: "/ingresses/:namespace/:name",
+};
+
+export const configMapsAPI = {
+  list: "/configmaps",
+  detail: "/configmaps/:namespace/:name",
+  delete: "/configmaps/:namespace/:name",
+};
+
+export const secretsAPI = {
+  list: "/secrets",
+  detail: "/secrets/:namespace/:name",
+};
+
+export const storageAPI = {
+  listPVCs: "/pvcs",
+  pvcDetail: "/pvcs/:namespace/:name",
+  listPVs: "/pvs",
+  pvDetail: "/pvs/:name",
+  listStorageClasses: "/storageclasses",
+  storageClassDetail: "/storageclasses/:name",
+};
+
+export const eventsAPI = {
+  list: "/events",
+};
+
+export const jobsAPI = {
+  list: "/jobs",
+  detail: "/jobs/:namespace/:name",
+  delete: "/jobs/:namespace/:name",
+};
+
+export const execAPI = {
+  exec: "/pods/:namespace/:name/exec",
+};
+
+export const applyAPI = {
+  apply: "/apply",
+};
+
 export const clustersAPI = {
   listClusters: "/clusters",
   getDefaultCluster: "/clusters/default",
@@ -113,6 +163,10 @@ export const auditAPI = {
 export const notificationsAPI = {
   listNotifications: "/notifications",
   markAllRead: "/notifications/read-all",
+};
+
+export const yamlAPI = {
+  get: "/yaml",
 };
 
 export function replacePathParams(

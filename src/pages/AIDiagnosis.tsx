@@ -35,6 +35,7 @@ import apiClient, { ApiError, buildApiUrl } from '@/lib/apiClient';
 import { aiDiagnosisAPI, replacePathParams } from '@/lib/api';
 import ClusterSelector from '@/components/ClusterSelector';
 import NotificationCenter from '@/components/NotificationCenter';
+import ResourceNavGroup from '@/components/ResourceNavGroup';
 
 type ConversationRole = 'user' | 'assistant';
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
@@ -1601,9 +1602,7 @@ export default function AIDiagnosis() {
             </div>
             <div className="space-y-1 p-4">
               {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
-              {navItem(<Server />, '节点', '/nodes')}
-              {navItem(<Database />, 'Pods', '/pods')}
-              {navItem(<Package />, '工作负载', '/workloads')}
+              <ResourceNavGroup isDark={isDark} onNavigate={() => setSidebarOpen(false)} />
               {navItem(<Shield />, '操作审计', '/audit-logs')}
               {navItem(<Settings />, '设置', '/settings')}
               {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}
@@ -1620,9 +1619,7 @@ export default function AIDiagnosis() {
 
           <div className="p-4 space-y-1 flex-1 overflow-y-auto">
             {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
-            {navItem(<Server />, '节点', '/nodes')}
-            {navItem(<Database />, 'Pods', '/pods')}
-            {navItem(<Package />, '工作负载', '/workloads')}
+            <ResourceNavGroup isDark={isDark} />
             {navItem(<Shield />, '操作审计', '/audit-logs')}
             {navItem(<Settings />, '设置', '/settings')}
             {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}

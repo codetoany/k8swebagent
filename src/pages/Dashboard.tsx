@@ -8,6 +8,7 @@ import { useClusterContext } from '@/contexts/clusterContext';
 import { useThemeContext } from '@/contexts/themeContext';
 import ClusterSelector from '@/components/ClusterSelector';
 import NotificationCenter from '@/components/NotificationCenter';
+import ResourceNavGroup from '@/components/ResourceNavGroup';
 import { aiDiagnosisAPI, dashboardAPI } from '@/lib/api';
 import { ApiError } from '@/lib/apiClient';
 import apiClient from '@/lib/apiClient';
@@ -264,9 +265,7 @@ const Dashboard = () => {
             </div>
             <div className="p-4 space-y-1">
               {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard', true)}
-              {navItem(<Server size={20} />, '节点', '/nodes')}
-              {navItem(<Database size={20} />, 'Pods', '/pods')}
-              {navItem(<Network size={20} />, '工作负载', '/workloads')}
+              <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
               {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
               {navItem(<Settings size={20} />, '设置', '/settings')}
               {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -279,9 +278,7 @@ const Dashboard = () => {
         <div className="p-4 border-b border-gray-700 flex items-center space-x-2"><Server className="text-blue-500" /><h2 className="text-xl font-bold">K8s Agent</h2></div>
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard', true)}
-          {navItem(<Server size={20} />, '节点', '/nodes')}
-          {navItem(<Database size={20} />, 'Pods', '/pods')}
-          {navItem(<Network size={20} />, '工作负载', '/workloads')}
+          <ResourceNavGroup isDark={theme === 'dark'} />
           {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {navItem(<Settings size={20} />, '设置', '/settings')}
           {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}

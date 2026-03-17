@@ -309,6 +309,13 @@ func (s *WorkloadsService) Delete(
 			}
 			return err
 		}
+	case "jobs":
+		if err := clientset.BatchV1().Jobs(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return ErrWorkloadNotFound
+			}
+			return err
+		}
 	default:
 		return ErrWorkloadActionUnsupported
 	}
@@ -368,6 +375,15 @@ func (s *WorkloadsService) listWithSource(ctx context.Context, clusterID string,
 		items = make([]WorkloadItem, 0, len(list.Items))
 		for _, item := range list.Items {
 			items = append(items, mapCronJob(item))
+		}
+	case "jobs":
+		list, err := clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", err
+		}
+		items = make([]WorkloadItem, 0, len(list.Items))
+		for _, item := range list.Items {
+			items = append(items, mapJob(item))
 		}
 	default:
 		return nil, "", fmt.Errorf("unsupported workload scope: %s", scope)
@@ -480,6 +496,46 @@ func mapCronJob(item batchv1.CronJob) WorkloadItem {
 		Labels:       copyStringMap(item.Labels),
 		Schedule:     item.Spec.Schedule,
 		LastSchedule: lastSchedule,
+	}
+}
+
+func mapJob(item batchv1.Job) WorkloadItem {
+	desired := int32(1)
+	if item.Spec.Parallelism != nil {
+		desired = *item.Spec.Parallelism
+	}
+
+	status := ""
+	for _, condition := range item.Status.Conditions {
+		if condition.Type == batchv1.JobComplete && condition.Status == corev1.ConditionTrue {
+			status = "Complete"
+			break
+		}
+		if condition.Type == batchv1.JobFailed && condition.Status == corev1.ConditionTrue {
+			status = "Failed"
+			break
+		}
+	}
+	if status == "" {
+		if item.Status.Active > 0 {
+			status = "Running"
+		} else {
+			status = "Pending"
+		}
+	}
+
+	return WorkloadItem{
+		ID:        fmt.Sprintf("%s-job", item.Name),
+		Name:      item.Name,
+		Namespace: item.Namespace,
+		Ready:     item.Status.Succeeded,
+		Desired:   desired,
+		Available: item.Status.Succeeded,
+		UpToDate:  item.Status.Active,
+		Age:       formatAge(item.CreationTimestamp.Time, time.Now().UTC()),
+		Images:    containerImages(item.Spec.Template.Spec.Containers),
+		Labels:    copyStringMap(item.Labels),
+		Strategy:  status,
 	}
 }
 

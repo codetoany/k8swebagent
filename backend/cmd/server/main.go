@@ -45,6 +45,11 @@ func main() {
 		log.Fatalf("failed to initialize settings storage: %v", err)
 	}
 
+	authStore := store.NewAuthStore(pool)
+	if err := authStore.Init(startupCtx); err != nil {
+		log.Fatalf("failed to initialize auth storage: %v", err)
+	}
+
 	clusterStore := store.NewClusterStore(pool)
 	if err := clusterStore.Init(startupCtx, cfg.K8s.Bootstrap); err != nil {
 		log.Fatalf("failed to initialize cluster storage: %v", err)
@@ -92,7 +97,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.NewRouter(snapshotStore, settingsStore, clusterStore, auditStore, aiHistoryStore, aiTemplateStore, aiMemoryStore, aiInspectionStore, aiIssueStore, aiInspectionRunner, k8sManager, redisCache, cfg.Observability),
+		Handler:           api.NewRouter(snapshotStore, settingsStore, authStore, clusterStore, auditStore, aiHistoryStore, aiTemplateStore, aiMemoryStore, aiInspectionStore, aiIssueStore, aiInspectionRunner, k8sManager, redisCache, cfg.Observability),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

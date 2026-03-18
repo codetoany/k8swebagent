@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from 'react';
+import { useContext, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import {
   AlertCircle,
@@ -27,11 +27,18 @@ interface PageLayoutProps {
   children: ReactNode;
 }
 
-const navItems = [
-  { icon: <BarChart3 size={20} />, label: '仪表盘', path: '/dashboard' },
-  { icon: <Shield size={20} />, label: '操作审计', path: '/audit-logs' },
-  { icon: <AlertCircle size={20} />, label: 'AI 诊断', path: '/ai-diagnosis' },
-  { icon: <Settings size={20} />, label: '设置', path: '/settings' },
+type NavItem = {
+  icon: JSX.Element;
+  label: string;
+  path: string;
+  permission: string;
+};
+
+const navItems: NavItem[] = [
+  { icon: <BarChart3 size={20} />, label: '仪表盘', path: '/dashboard', permission: 'dashboard:read' },
+  { icon: <Shield size={20} />, label: '操作审计', path: '/audit-logs', permission: 'audit:read' },
+  { icon: <AlertCircle size={20} />, label: 'AI 诊断', path: '/ai-diagnosis', permission: 'diagnosis:read' },
+  { icon: <Settings size={20} />, label: '设置', path: '/settings', permission: 'settings:read' },
 ];
 
 const PageLayout = ({ title, activePath, children }: PageLayoutProps) => {
@@ -42,10 +49,15 @@ const PageLayout = ({ title, activePath, children }: PageLayoutProps) => {
     selectedCluster,
     setSelectedClusterId,
   } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { currentUser, logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const currentTheme = isDark ? 'dark' : 'light';
+
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => hasPermission(item.permission)),
+    [hasPermission],
+  );
 
   const navigateTo = (path: string) => {
     navigate(path);
@@ -54,14 +66,9 @@ const PageLayout = ({ title, activePath, children }: PageLayoutProps) => {
     }
   };
 
-  const renderNavItem = (
-    icon: ReactNode,
-    label: string,
-    path: string,
-    active = false,
-  ) => (
+  const renderNavItem = (item: NavItem, active = false) => (
     <motion.div
-      key={path}
+      key={item.path}
       className={`flex items-center space-x-3 rounded-lg px-4 py-2.5 transition-all duration-300 ${
         active
           ? theme === 'dark'
@@ -71,30 +78,29 @@ const PageLayout = ({ title, activePath, children }: PageLayoutProps) => {
             ? 'cursor-pointer text-gray-300 hover:bg-gray-800'
             : 'cursor-pointer text-gray-700 hover:bg-gray-100'
       }`}
-      onClick={() => navigateTo(path)}
+      onClick={() => navigateTo(item.path)}
     >
-      <span className="text-lg">{icon}</span>
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-lg">{item.icon}</span>
+      <span className="text-sm font-medium">{item.label}</span>
     </motion.div>
   );
 
   const sidebarContent = (
     <div className="flex-1 space-y-0.5 overflow-y-auto p-3">
-      {renderNavItem(
-        navItems[0].icon,
-        navItems[0].label,
-        navItems[0].path,
-        navItems[0].path === activePath,
-      )}
-      <ResourceNavGroup
-        isDark={theme === 'dark'}
-        onNavigate={() => setSidebarOpen(false)}
-      />
-      {navItems.slice(1).map((item) =>
-        renderNavItem(item.icon, item.label, item.path, item.path === activePath),
-      )}
+      {visibleNavItems
+        .filter((item) => item.path === '/dashboard')
+        .map((item) => renderNavItem(item, item.path === activePath))}
+      <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+      {visibleNavItems
+        .filter((item) => item.path !== '/dashboard')
+        .map((item) => renderNavItem(item, item.path === activePath))}
     </div>
   );
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
+  };
 
   return (
     <div
@@ -155,15 +161,12 @@ const PageLayout = ({ title, activePath, children }: PageLayoutProps) => {
                 <User size={16} />
               </div>
               <div>
-                <div className="text-sm font-medium">管理员</div>
-                <div className="text-xs opacity-70">admin@k8s-agent.com</div>
+                <div className="text-sm font-medium">{currentUser?.username || '未登录'}</div>
+                <div className="text-xs opacity-70">{currentUser?.email || '-'}</div>
               </div>
             </div>
             <button
-              onClick={() => {
-                logout();
-                navigate('/');
-              }}
+              onClick={handleLogout}
               className={`rounded-full p-2 ${
                 theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'
               }`}

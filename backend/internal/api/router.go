@@ -26,6 +26,7 @@ import (
 type handler struct {
 	store              *store.SnapshotStore
 	settingsStore      *store.SettingsStore
+	authStore          *store.AuthStore
 	clusterStore       *store.ClusterStore
 	auditStore         *store.AuditStore
 	aiHistoryStore     *store.AIConversationStore
@@ -68,6 +69,7 @@ type namedMeta struct {
 func NewRouter(
 	snapshotStore *store.SnapshotStore,
 	settingsStore *store.SettingsStore,
+	authStore *store.AuthStore,
 	clusterStore *store.ClusterStore,
 	auditStore *store.AuditStore,
 	aiHistoryStore *store.AIConversationStore,
@@ -83,6 +85,7 @@ func NewRouter(
 	h := &handler{
 		store:              snapshotStore,
 		settingsStore:      settingsStore,
+		authStore:          authStore,
 		clusterStore:       clusterStore,
 		auditStore:         auditStore,
 		aiHistoryStore:     aiHistoryStore,
@@ -117,6 +120,7 @@ func NewRouter(
 		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		MaxAge:         300,
 	}))
+	router.Use(h.apiAuthMiddleware)
 
 	router.Get("/api/health", h.wrap(h.health))
 
@@ -130,7 +134,9 @@ func NewRouter(
 	})
 
 	router.Route("/api/auth", func(r chi.Router) {
-		r.Get("/user-info", h.wrap(h.snapshot("auth", "user-info")))
+		r.Post("/login", h.wrap(h.login))
+		r.Post("/logout", h.wrap(h.logoutHandler))
+		r.Get("/user-info", h.wrap(h.userInfo))
 	})
 
 	router.Route("/api/audit-logs", func(r chi.Router) {
@@ -1876,6 +1882,15 @@ func requestedPage(r *http.Request, fallback int) int {
 func (h *handler) recordAudit(ctx context.Context, r *http.Request, input store.AuditLogInput) {
 	if h.auditStore == nil {
 		return
+	}
+
+	if user, ok := authUserFromContext(ctx); ok {
+		if input.ActorName == "" {
+			input.ActorName = user.Username
+		}
+		if input.ActorEmail == "" {
+			input.ActorEmail = user.Email
+		}
 	}
 
 	if input.ActorName == "" {

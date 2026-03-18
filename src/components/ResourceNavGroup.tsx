@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Boxes,
   ChevronDown,
@@ -12,29 +12,46 @@ import {
   Zap,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { AuthContext } from '@/contexts/authContext';
 
 type ResourceNavGroupProps = {
   isDark: boolean;
   onNavigate?: () => void;
 };
 
-const resourceItems = [
-  { label: '节点', path: '/nodes', icon: <Server size={18} /> },
-  { label: 'Pods', path: '/pods', icon: <Database size={18} /> },
-  { label: '工作负载', path: '/workloads', icon: <Package size={18} /> },
-  { label: 'Services', path: '/services', icon: <Waypoints size={18} /> },
-  { label: 'Ingresses', path: '/ingresses', icon: <Zap size={18} /> },
-  { label: 'ConfigMaps', path: '/configmaps', icon: <FileCog size={18} /> },
-  { label: 'Secrets', path: '/secrets', icon: <ShieldCheck size={18} /> },
-  { label: '存储', path: '/storage', icon: <HardDrive size={18} /> },
-  { label: 'Events', path: '/events', icon: <Boxes size={18} /> },
+type ResourceItem = {
+  label: string;
+  path: string;
+  permission: string;
+  icon: JSX.Element;
+};
+
+const resourceItems: ResourceItem[] = [
+  { label: '节点', path: '/nodes', permission: 'nodes:read', icon: <Server size={18} /> },
+  { label: 'Pods', path: '/pods', permission: 'pods:read', icon: <Database size={18} /> },
+  { label: '工作负载', path: '/workloads', permission: 'workloads:read', icon: <Package size={18} /> },
+  { label: 'Services', path: '/services', permission: 'services:read', icon: <Waypoints size={18} /> },
+  { label: 'Ingresses', path: '/ingresses', permission: 'ingresses:read', icon: <Zap size={18} /> },
+  { label: 'ConfigMaps', path: '/configmaps', permission: 'configmaps:read', icon: <FileCog size={18} /> },
+  { label: 'Secrets', path: '/secrets', permission: 'secrets:read', icon: <ShieldCheck size={18} /> },
+  { label: '存储', path: '/storage', permission: 'storage:read', icon: <HardDrive size={18} /> },
+  { label: 'Events', path: '/events', permission: 'events:read', icon: <Boxes size={18} /> },
 ];
 
 const ResourceNavGroup = ({ isDark, onNavigate }: ResourceNavGroupProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { hasPermission } = useContext(AuthContext);
   const currentPath = location.pathname;
-  const resourceActive = useMemo(() => resourceItems.some((item) => item.path === currentPath), [currentPath]);
+
+  const visibleItems = useMemo(
+    () => resourceItems.filter((item) => hasPermission(item.permission)),
+    [hasPermission],
+  );
+  const resourceActive = useMemo(
+    () => visibleItems.some((item) => item.path === currentPath),
+    [currentPath, visibleItems],
+  );
   const [expanded, setExpanded] = useState(resourceActive);
 
   useEffect(() => {
@@ -42,6 +59,10 @@ const ResourceNavGroup = ({ isDark, onNavigate }: ResourceNavGroupProps) => {
       setExpanded(true);
     }
   }, [resourceActive]);
+
+  if (visibleItems.length === 0) {
+    return null;
+  }
 
   const navigateTo = (path: string) => {
     navigate(path);
@@ -73,7 +94,7 @@ const ResourceNavGroup = ({ isDark, onNavigate }: ResourceNavGroupProps) => {
       </button>
       {expanded ? (
         <div className="space-y-1">
-          {resourceItems.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.path}
               type="button"

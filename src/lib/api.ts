@@ -15,6 +15,7 @@ export const nodesAPI = {
   listNodes: "/nodes",
   getNodeDetail: "/nodes/:name",
   getNodeMetrics: "/nodes/:name/metrics",
+  shell: "/nodes/:name/shell",
   cordonNode: "/nodes/:name/cordon",
   uncordonNode: "/nodes/:name/uncordon",
   enableMaintenance: "/nodes/:name/maintenance/enable",
@@ -101,6 +102,15 @@ export const jobsAPI = {
 
 export const execAPI = {
   exec: "/pods/:namespace/:name/exec",
+};
+
+export const clusterConsoleAPI = {
+  meta: "/cluster-console/meta",
+  ws: "/cluster-console/ws",
+};
+
+export const nodeShellAPI = {
+  meta: "/node-shell/meta",
 };
 
 export const applyAPI = {

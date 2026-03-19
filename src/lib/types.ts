@@ -19,6 +19,34 @@ export interface UserInfo {
   permissions: string[];
 }
 
+export interface ClusterConsoleMeta {
+  enabled: boolean;
+  adminOnly: boolean;
+  sessionTimeoutSeconds: number;
+  shellPath: string;
+  kubectlPath: string;
+  shellAvailable: boolean;
+  kubectlAvailable: boolean;
+  message?: string;
+}
+
+export interface NodeShellMeta {
+  enabled: boolean;
+  adminOnly: boolean;
+  sessionTimeoutSeconds: number;
+  namespace: string;
+  daemonSetName: string;
+  podLabelSelector: string;
+  containerName: string;
+  shellPath: string;
+  commandPreview: string;
+  installed: boolean;
+  desiredPods: number;
+  readyPods: number;
+  availablePods: number;
+  message?: string;
+}
+
 // 集群概览类型
 export interface ClusterOverview {
   totalNodes: number;

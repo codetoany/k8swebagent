@@ -10,6 +10,7 @@ import {
   Settings,
   Shield,
   Sun,
+  Terminal,
   User,
   X,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { icon: <BarChart3 size={20} />, label: '仪表盘', path: '/dashboard', permission: 'dashboard:read' },
+  { icon: <Terminal size={20} />, label: '集群命令台', path: '/cluster-console', permission: 'cluster.console' },
   { icon: <Shield size={20} />, label: '操作审计', path: '/audit-logs', permission: 'audit:read' },
   { icon: <AlertCircle size={20} />, label: 'AI 诊断', path: '/ai-diagnosis', permission: 'diagnosis:read' },
   { icon: <Settings size={20} />, label: '设置', path: '/settings', permission: 'settings:read' },

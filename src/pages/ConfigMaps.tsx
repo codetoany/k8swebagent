@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { motion } from 'framer-motion';
 import { Search, ChevronDown, ArrowUpDown, X, Trash2, Eye } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
+import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
 import { configMapsAPI, namespacesAPI, replacePathParams } from '@/lib/api';
 import PageLayout from '@/components/PageLayout';
 import TablePagination from '@/components/TablePagination';
+import ResourceYAMLPanel from '@/components/ResourceYAMLPanel';
 
 const ConfigMaps = () => {
   const { theme } = useThemeContext();
   const { selectedCluster } = useClusterContext();
+  const { hasPermission } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const [configMaps, setConfigMaps] = useState<any[]>([]);
   const [namespaceOptions, setNamespaceOptions] = useState(['全部']);
@@ -23,6 +26,7 @@ const ConfigMaps = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
+  const canWriteConfigMaps = hasPermission('configmaps:write');
 
   useEffect(() => {
     let active = true;
@@ -121,7 +125,9 @@ const ConfigMaps = () => {
                       <td className="px-4 py-3 text-sm" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center space-x-2">
                           <button onClick={() => void handleViewDetail(item)} className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Eye size={14} /></button>
-                          <button onClick={() => void handleDelete(item)} className={`p-1.5 rounded text-red-500 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Trash2 size={14} /></button>
+                          {canWriteConfigMaps ? (
+                            <button onClick={() => void handleDelete(item)} className={`p-1.5 rounded text-red-500 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Trash2 size={14} /></button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -163,6 +169,17 @@ const ConfigMaps = () => {
                   ) : (
                     <p className="text-sm text-gray-400">无配置数据</p>
                   )}
+                  <div>
+                    <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>YAML</h4>
+                    <ResourceYAMLPanel
+                      clusterId={selectedCluster?.id}
+                      kind="ConfigMap"
+                      version="v1"
+                      namespace={selectedItem.namespace}
+                      name={selectedItem.name}
+                      theme={theme}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

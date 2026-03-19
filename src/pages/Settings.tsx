@@ -5,7 +5,7 @@
     Moon, Sun, Menu, X, Bell, 
     RefreshCw, PlusCircle,
     AlertCircle, CheckCircle,
-    User, Shield, BellRing, Info, HelpCircle,
+    User, Shield, BellRing, Info, HelpCircle, Terminal,
     ExternalLink, Save, X as XIcon,
     BarChart, Brain, Edit, Trash, Check
   } from 'lucide-react';
@@ -99,7 +99,7 @@
   const SettingsPage = () => {
     const { theme, setTheme, toggleTheme, isDark } = useThemeContext();
     const { clusters, refreshClusters } = useClusterContext();
-    const { logout } = useContext(AuthContext);
+    const { logout, hasPermission } = useContext(AuthContext);
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -151,6 +151,8 @@
       modelType: 'openai',
       isDefault: false
     });
+    const canWriteSettings = hasPermission('settings:write');
+    const canManageClusters = hasPermission('clusters:manage');
     const normalizeClusterConfig = (cluster?: Partial<ClusterConfig> | null): ClusterConfig => {
       return {
         ...createEmptyClusterConfig(),
@@ -532,6 +534,11 @@
     };
 
     const persistSystemSettings = async () => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有系统设置权限');
+        return;
+      }
+
       setSettingsSaving(settingsEditorMode);
       try {
         const payload: SystemSettingsResponse = {
@@ -558,6 +565,11 @@
     };
 
     const persistNotificationSettings = async () => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有通知设置权限');
+        return;
+      }
+
       setSettingsSaving('notifications');
       try {
         await apiClient.put<NotificationSettingsResponse>(
@@ -582,6 +594,11 @@
     };
 
     const persistAIModels = async (models: AIModel[]) => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有 AI 模型配置权限');
+        return;
+      }
+
       setAiModelsSaving(true);
       try {
         const savedModels = await apiClient.put<AIModel[]>(settingsAPI.updateAIModels, models);
@@ -604,6 +621,11 @@
     };
 
     const handleCreateClusterConfig = () => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return;
+      }
+
       openClusterEditor('create', {
         ...createEmptyClusterConfig(),
         isDefault: clusters.length === 0,
@@ -611,6 +633,11 @@
     };
 
     const handleEditClusterConfig = (cluster: ClusterConfig) => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return;
+      }
+
       setSelectedClusterConfigId(cluster.id);
       setSavedClusterConfig(normalizeClusterConfig(cluster));
       openClusterEditor('edit', cluster);
@@ -668,6 +695,11 @@
     };
 
     const persistClusterConfig = async (showToast = true) => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return null;
+      }
+
       const payload = buildClusterPayload();
       if (!payload) {
         return null;
@@ -701,6 +733,11 @@
     };
 
     const handleTestClusterConnection = async () => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return;
+      }
+
       setClusterTesting(true);
       try {
         const savedCluster = await persistClusterConfig(false);
@@ -732,6 +769,11 @@
     };
 
     const handleDeleteClusterConfig = async (cluster: ClusterConfig) => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return;
+      }
+
       const confirmed = window.confirm(`确认删除集群“${cluster.name}”吗？删除后可重新创建。`);
       if (!confirmed) {
         return;
@@ -751,6 +793,11 @@
     };
 
     const handleSetDefaultClusterConfig = async (cluster: ClusterConfig) => {
+      if (!canManageClusters) {
+        toast.error('当前账号没有集群管理权限');
+        return;
+      }
+
       setClusterActionLoadingId(cluster.id);
       try {
         await apiClient.put<ClusterConfig>(
@@ -788,6 +835,11 @@
     
     // 添加AI模型
     const handleAddModel = async () => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有 AI 模型配置权限');
+        return;
+      }
+
       if (!newModel.id || !newModel.name || !newModel.apiBaseUrl) {
         toast('请填写模型标识、模型名称和 API 地址');
         return;
@@ -828,11 +880,21 @@
     
     // 编辑AI模型
     const handleEditModel = (model: AIModel) => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有 AI 模型配置权限');
+        return;
+      }
+
       setEditingModel({...model});
     };
     
     // 保存编辑的模型
     const handleSaveEdit = async () => {
+      if (!canWriteSettings) {
+        toast.error('当前账号没有 AI 模型配置权限');
+        return;
+      }
+
       if (!editingModel || !editingModel.id || !editingModel.name || !editingModel.apiBaseUrl) {
         toast('请填写模型标识、模型名称和 API 地址');
         return;
@@ -1019,6 +1081,7 @@
               <div className="p-4 space-y-1">
                  {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
                  <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+                 {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
                  {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                  {renderNavItem(<Settings size={20} />, '设置', '/settings', true)}
               </div>
@@ -1035,6 +1098,7 @@
           <div className="p-4 space-y-1 flex-1 overflow-y-auto">
             {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
             <ResourceNavGroup isDark={theme === 'dark'} />
+            {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
             {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
             {renderNavItem(<Settings size={20} />, '设置', '/settings', true)}
             {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -1235,6 +1299,7 @@
                                 将主题、语言和刷新策略整理成摘要卡片，点编辑再进入配置面板。
                               </p>
                             </div>
+                            {canManageClusters && (
                             <button
                               type="button"
                               onClick={() => openSettingsEditor('general')}
@@ -1247,6 +1312,7 @@
                               <Edit size={16} className="mr-2" />
                               编辑通用设置
                             </button>
+                            )}
                           </div>
 
                           <div className="grid gap-4 md:grid-cols-2">
@@ -1705,7 +1771,7 @@
                                     <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${
                                       theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
                                     }`}>
-                                      {!cluster.isDefault && (
+                                      {canManageClusters && !cluster.isDefault && (
                                         <button
                                           type="button"
                                           onClick={(event) => {
@@ -1727,6 +1793,7 @@
                                           设为默认
                                         </button>
                                       )}
+                                      {canManageClusters && (
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -1742,6 +1809,8 @@
                                         <Edit size={13} className="mr-1.5" />
                                         编辑
                                       </button>
+                                      )}
+                                      {canManageClusters && (
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -1762,6 +1831,7 @@
                                         )}
                                         删除
                                       </button>
+                                      )}
                                     </div>
                                   </motion.div>
                                 );

@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { motion } from 'framer-motion';
 import { Search, ChevronDown, ArrowUpDown, X, Trash2, Eye } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
 import { useClusterContext } from '@/contexts/clusterContext';
+import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
 import { servicesAPI, namespacesAPI, replacePathParams } from '@/lib/api';
 import PageLayout from '@/components/PageLayout';
 import TablePagination from '@/components/TablePagination';
+import ResourceYAMLPanel from '@/components/ResourceYAMLPanel';
 
 const Services = () => {
   const { theme } = useThemeContext();
   const { selectedCluster } = useClusterContext();
+  const { hasPermission } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [namespaceOptions, setNamespaceOptions] = useState(['全部']);
@@ -23,6 +26,7 @@ const Services = () => {
   const [pageSize, setPageSize] = useState(10);
 
   const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
+  const canWriteServices = hasPermission('services:write');
 
   useEffect(() => {
     let active = true;
@@ -136,7 +140,9 @@ const Services = () => {
                       <td className="px-4 py-3 text-sm" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center space-x-2">
                           <button onClick={() => setSelectedItem(item)} className={`p-1.5 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Eye size={14} /></button>
-                          <button onClick={() => void handleDelete(item)} className={`p-1.5 rounded text-red-500 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Trash2 size={14} /></button>
+                          {canWriteServices ? (
+                            <button onClick={() => void handleDelete(item)} className={`p-1.5 rounded text-red-500 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}><Trash2 size={14} /></button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -191,6 +197,17 @@ const Services = () => {
                       <p className="text-sm font-mono">{selectedItem.externalIPs.join(', ')}</p>
                     </div>
                   )}
+                  <div>
+                    <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>YAML</h4>
+                    <ResourceYAMLPanel
+                      clusterId={selectedCluster?.id}
+                      kind="Service"
+                      version="v1"
+                      namespace={selectedItem.namespace}
+                      name={selectedItem.name}
+                      theme={theme}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

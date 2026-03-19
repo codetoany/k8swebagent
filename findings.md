@@ -1,0 +1,48 @@
+# Findings
+
+## 2026-03-19
+
+- 当前前端 `PodExecModal` 仍使用 `POST /api/pods/{ns}/{name}/exec` 的一次性执行模式。
+- 当前后端已经具备 `GET /api/pods/{ns}/{name}/exec` WebSocket 入口和审计逻辑。
+- 浏览器原生 `WebSocket` 无法直接携带 `Authorization` 请求头，因此需要补充 query 参数或其他兼容鉴权方式。
+- `xterm` 与 `@xterm/addon-fit` 依赖已存在于前端 `package.json`。
+- `docs/task.md` 已更新为勾选式任务单，B2 剩余项为前端终端化与联调验证。
+- 已改为 `xterm.js + WebSocket` 终端模式，前端不再依赖单次命令执行输入框。
+- 已补充 `access_token` query 参数鉴权兼容，后端会优先读 `Authorization`，回退读取 URL token。
+- 已补充前端终端测试，覆盖连接成功与重连场景。
+- `npm test`、`npm run build:verify`、`go test ./...` 均已通过。
+- 远端联调时发现前端 `nginx.conf` 未转发 WebSocket 升级头，导致 `/api/.../exec` 经代理返回 `400`。
+- 已补充 `Upgrade` / `Connection` 转发配置并重建前端容器。
+- 远端真实验证结果：
+  - WebSocket 握手成功，Nginx 返回 `101`
+  - `stty size` 返回 `40 140`，确认 `resize` 生效
+  - `echo codex-b2-ws` 成功回显
+  - `pod.exec` 审计日志成功写入
+- 当前项目已具备 `xterm.js + WebSocket` 终端、集群切换、权限与审计基础，适合作为“管理员命令台”的底座。
+- 仅有 K8s 认证信息并不等同于主机 SSH 权限，不能直接推导出宿主机 Shell。
+- 无跳板机场景下，建议拆分为两项能力：
+  - `E1 集群命令台（kubectl console）`：覆盖大多数集群资源 CRUD、rollout、logs 等操作
+  - `E2 节点终端（host shell）`：通过 `privileged DaemonSet + nsenter/chroot` 提供宿主机级操作
+- `E1` 更适合作为先行项，因为它能复用现有终端链路，并优先满足“无需登录主机即可操作集群”的核心诉求。
+- `E2` 属于高危能力，即使仅管理员可用，也应保留默认关闭、完整审计、会话超时与风险提示。
+- `E2` 最适合复用现有 `Pod Exec` WebSocket 协议，而不是再实现一套新的终端协议：
+  - 后端只需要解决“节点名 -> host-shell Pod -> pod exec”映射
+  - 前端可以沿用 `xterm.js + WebSocket` 终端弹窗模式
+- 当前 `Nodes` 页面已经有节点详情弹窗和操作按钮区域，适合直接增加“节点终端”入口，无需再开独立页面。
+- 当前 `deploy/k8s-agent-pod-operator-rbac.yaml` 已具备 `pods` 读取、`pods/exec create`、`daemonsets create/update/delete` 等权限，满足：
+  - 后端查找 `host-shell` Pod
+  - 通过 Pod Exec 进入 `host-shell`
+  - 通过现有 Apply/API 部署或更新 `host-shell` DaemonSet
+- `E2` 的宿主机进入方式建议采用：
+  - `privileged + hostPID + hostNetwork`
+  - 挂载宿主机 `/` 到 `/host`
+  - 终端命令使用 `nsenter -t 1 -m -u -i -n -p -- chroot /proc/1/root /bin/sh -l`
+- `E2` 需要单独的默认关闭开关和元信息接口，否则前端无法提前判断：
+  - 是否启用 `host shell`
+  - `host-shell` DaemonSet 是否已部署
+  - 当前节点是否存在可用的 `host-shell` Pod
+- `E2` 后端已实现 `GET /api/node-shell/meta` 与 `GET /api/nodes/{name}/shell`，可以直接复用现有 Pod Exec WebSocket 协议和审计模型。
+- `E2` 前端最适合做成 `Nodes` 页内的弹窗终端，而不是新页面：用户先锁定节点，再确认进入高危宿主机终端。
+- 本地验证已经覆盖节点状态守卫、节点终端元信息加载、WebSocket 建连和禁用态；真正差的只剩远端 privileged DaemonSet 部署与节点级验收。
+- 远端真实验收暴露出一个关键细节：`nsenter -t 1 -m -u -i -n -p -- chroot /host /bin/sh -l` 在切入宿主机 mount namespace 后会丢失容器内的 `/host` 挂载，因此需要改为 `chroot /proc/1/root`。
+- 修正后的默认进入命令 `nsenter -t 1 -m -u -i -n -p -- chroot /proc/1/root /bin/sh -l` 已在 `k8s-node01` 上验证通过，返回了宿主机 hostname、root uid 和正确的 PTY 尺寸。

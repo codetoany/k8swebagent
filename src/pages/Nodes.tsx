@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
     Server, BarChart3, Database, Network, Settings, LogOut, 
     Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
     RefreshCw, PlusCircle, MoreVertical, Filter, Download,
-    AlertCircle, CheckCircle, ArrowUpDown, Eye, User, PauseCircle, PlayCircle,
+    AlertCircle, CheckCircle, ArrowUpDown, Eye, Terminal, User, PauseCircle, PlayCircle,
     Shield,
 
   } from 'lucide-react';
@@ -17,10 +17,12 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
 import { nodesAPI, replacePathParams } from '@/lib/api';
+import NodeShellModal from '@/components/NodeShellModal';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
 import NotificationCenter from '@/components/NotificationCenter';
 import ResourceNavGroup from '@/components/ResourceNavGroup';
+import { canOpenNodeShell, getNodeShellUnavailableReason } from '@/lib/nodes';
 
 const nodesData: any[] = [];
 
@@ -72,7 +74,7 @@ const Nodes = () => {
     selectedCluster,
     setSelectedClusterId,
   } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -84,7 +86,10 @@ const Nodes = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [actionLoadingKey, setActionLoadingKey] = useState('');
+  const [nodeShellTarget, setNodeShellTarget] = useState<any>(null);
   const currentTheme = isDark ? 'dark' : 'light';
+  const canWriteNodes = hasPermission('nodes:write');
+  const canUseNodeShell = hasPermission('node.shell');
 
   const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
 
@@ -101,6 +106,7 @@ const Nodes = () => {
         if (active && Array.isArray(data)) {
           setNodes(data);
           setSelectedNode(null);
+          setNodeShellTarget(null);
         }
       } finally {
         if (active) {
@@ -163,9 +169,36 @@ const Nodes = () => {
       current.map((item) => (item.name === updatedNode.name ? updatedNode : item)),
     );
     setSelectedNode((current: any) => (current?.name === updatedNode.name ? updatedNode : current));
+    setNodeShellTarget((current: any) => (current?.name === updatedNode.name ? updatedNode : current));
+  };
+
+  const handleOpenNodeShell = (node: any) => {
+    if (!canUseNodeShell) {
+      toast.error('当前账号没有节点终端权限');
+      return;
+    }
+
+    if (!canOpenNodeShell(node)) {
+      toast.error(getNodeShellUnavailableReason(node));
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `即将进入节点 "${node.name}" 的宿主机终端。该操作拥有节点级高权限，并会写入审计日志。是否继续？`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setNodeShellTarget(node);
   };
 
   const handleToggleScheduling = async (node: any) => {
+    if (!canWriteNodes) {
+      toast.error('当前账号没有节点操作权限');
+      return;
+    }
+
     const currentlySchedulable = isNodeSchedulable(node);
     const confirmed = window.confirm(
       currentlySchedulable
@@ -193,6 +226,11 @@ const Nodes = () => {
   };
 
   const handleToggleMaintenance = async (node: any) => {
+    if (!canWriteNodes) {
+      toast.error('当前账号没有节点操作权限');
+      return;
+    }
+
     const enabling = !hasMaintenanceTaint(node);
     const confirmed = window.confirm(
       enabling
@@ -493,6 +531,7 @@ const Nodes = () => {
                     </span>
                   )}
                 </div>
+                {canWriteNodes && (
                 <button
                   className={`px-4 py-2 rounded-lg text-sm ${
                     isNodeSchedulable(selectedNode)
@@ -512,6 +551,7 @@ const Nodes = () => {
                       ? '设为不可调度'
                       : '恢复调度'}
                 </button>
+                )}
               </div>
             </div>
             
@@ -531,6 +571,7 @@ const Nodes = () => {
                     </span>
                   )}
                 </div>
+                {canWriteNodes && (
                 <button
                   className={`px-4 py-2 rounded-lg text-sm ${
                     hasMaintenanceTaint(selectedNode)
@@ -550,8 +591,53 @@ const Nodes = () => {
                       ? 'Clear maintenance taint'
                       : 'Enable maintenance taint'}
                 </button>
+                )}
               </div>
             </div>
+
+            {canUseNodeShell && (
+              <div className="mt-6 mb-6">
+                <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>节点终端</h4>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      {canOpenNodeShell(selectedNode) ? (
+                        <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300">
+                          <Terminal size={12} className="mr-1" />
+                          可进入宿主机
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                          <AlertCircle size={12} className="mr-1" />
+                          暂不可用
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-xs leading-5 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                      节点终端会通过 host-shell DaemonSet 进入宿主机命名空间，适合节点级排障与紧急运维。
+                    </p>
+                    {!canOpenNodeShell(selectedNode) && (
+                      <p className={`text-xs leading-5 ${theme === 'dark' ? 'text-amber-300' : 'text-amber-700'}`}>
+                        {getNodeShellUnavailableReason(selectedNode)}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
+                      theme === 'dark'
+                        ? 'bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-700 disabled:text-gray-400'
+                        : 'bg-cyan-500 text-white hover:bg-cyan-600 disabled:bg-gray-200 disabled:text-gray-500'
+                    }`}
+                    onClick={() => handleOpenNodeShell(selectedNode)}
+                    disabled={!canOpenNodeShell(selectedNode)}
+                    title={canOpenNodeShell(selectedNode) ? '进入节点终端' : getNodeShellUnavailableReason(selectedNode)}
+                  >
+                    <Terminal size={16} />
+                    <span>进入节点终端</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-6">
               <h4 className={`text-sm font-medium mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>标签</h4>
@@ -621,6 +707,7 @@ const Nodes = () => {
             <div className="p-4 space-y-1">
                {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
                <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+               {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
                {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                {renderNavItem(<Settings size={20} />, '设置', '/settings')}
             </div>
@@ -637,6 +724,7 @@ const Nodes = () => {
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
           <ResourceNavGroup isDark={theme === 'dark'} />
+          {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
           {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -873,6 +961,7 @@ const Nodes = () => {
                           </td>
                           <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
                             <div className="flex items-center justify-end space-x-2">
+                              {canWriteNodes && (
                               <button 
                                 className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
                                 onClick={(e) => {
@@ -882,6 +971,8 @@ const Nodes = () => {
                               >
                                 <Eye size={16} />
                               </button>
+                              )}
+                              {canWriteNodes && (
                               <button 
                                 className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} ${
                                   isNodeSchedulable(node) ? 'text-yellow-500' : 'text-green-500'
@@ -895,6 +986,22 @@ const Nodes = () => {
                               >
                                 {isNodeSchedulable(node) ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                               </button>
+                              )}
+                              {canUseNodeShell && (
+                              <button
+                                className={`p-1 rounded ${
+                                  theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'
+                                } text-cyan-500 disabled:cursor-not-allowed disabled:opacity-40`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenNodeShell(node);
+                                }}
+                                disabled={!canOpenNodeShell(node)}
+                                title={canOpenNodeShell(node) ? '进入节点终端' : getNodeShellUnavailableReason(node)}
+                              >
+                                <Terminal size={16} />
+                              </button>
+                              )}
                               <button 
                                 className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} ${
                                   hasMaintenanceTaint(node) ? 'text-sky-500' : 'text-orange-500'
@@ -940,6 +1047,14 @@ const Nodes = () => {
               
               {/* 节点详情弹窗 */}
               {renderNodeDetail()}
+              {nodeShellTarget ? (
+                <NodeShellModal
+                  node={nodeShellTarget}
+                  clusterId={selectedCluster?.id}
+                  theme={currentTheme}
+                  onClose={() => setNodeShellTarget(null)}
+                />
+              ) : null}
             </motion.div>
           )}
         </main>

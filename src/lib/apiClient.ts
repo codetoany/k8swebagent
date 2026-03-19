@@ -30,6 +30,37 @@ export function buildApiUrl(endpoint: string, params?: Record<string, string | n
   return `${url.pathname}${url.search}`;
 }
 
+export function getStoredAuthToken(): string {
+  return localStorage.getItem('authToken') ?? '';
+}
+
+export function buildWebSocketUrl(
+  endpoint: string,
+  params?: Record<string, string | number | boolean>,
+  includeAuthToken = true,
+): string {
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = new URL(`${protocol}//${window.location.host}${API_BASE_URL}${normalizedEndpoint}`);
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        url.searchParams.set(key, String(value));
+      }
+    });
+  }
+
+  if (includeAuthToken) {
+    const token = getStoredAuthToken();
+    if (token) {
+      url.searchParams.set('access_token', token);
+    }
+  }
+
+  return url.toString();
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({} as { message?: string }));
@@ -49,7 +80,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
       ...options.headers,
     };
 
-    const token = localStorage.getItem('authToken');
+    const token = getStoredAuthToken();
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }

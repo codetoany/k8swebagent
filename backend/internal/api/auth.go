@@ -94,7 +94,7 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) logoutHandler(w http.ResponseWriter, r *http.Request) error {
-	token := extractBearerToken(r.Header.Get("Authorization"))
+	token := extractRequestToken(r)
 	if token == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
@@ -121,7 +121,7 @@ func (h *handler) resolveAuthUser(r *http.Request) (*store.AuthUser, error) {
 	if user, ok := r.Context().Value(authUserContextKey).(store.AuthUser); ok {
 		return &user, nil
 	}
-	token := extractBearerToken(r.Header.Get("Authorization"))
+	token := extractRequestToken(r)
 	if token == "" || h.authStore == nil {
 		return nil, store.ErrSessionNotFound
 	}
@@ -147,6 +147,18 @@ func extractBearerToken(headerValue string) string {
 	return strings.TrimSpace(parts[1])
 }
 
+func extractRequestToken(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	if token := extractBearerToken(r.Header.Get("Authorization")); token != "" {
+		return token
+	}
+
+	return strings.TrimSpace(r.URL.Query().Get("access_token"))
+}
+
 func userHasPermission(user store.AuthUser, permission string) bool {
 	if user.Role == "admin" {
 		return true
@@ -160,7 +172,19 @@ func userHasPermission(user store.AuthUser, permission string) bool {
 }
 
 func requiredPermission(method string, path string) string {
-	if method == http.MethodGet || method == http.MethodOptions {
+	if method == http.MethodOptions {
+		return ""
+	}
+	if method == http.MethodGet {
+		if strings.HasPrefix(path, "/api/pods/") && strings.HasSuffix(path, "/exec") {
+			return "pods:write"
+		}
+		if strings.HasPrefix(path, "/api/cluster-console") {
+			return "cluster.console"
+		}
+		if strings.HasPrefix(path, "/api/node-shell") || (strings.HasPrefix(path, "/api/nodes/") && strings.HasSuffix(path, "/shell")) {
+			return "node.shell"
+		}
 		return ""
 	}
 
@@ -201,4 +225,3 @@ func authUserJSON(user *store.AuthUser) json.RawMessage {
 	payload, _ := json.Marshal(user)
 	return payload
 }
-

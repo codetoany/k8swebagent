@@ -37,6 +37,8 @@ type handler struct {
 	aiInspectionRunner *AIInspectionRunner
 	k8sManager         *k8s.Manager
 	redisCache         *cache.RedisCache
+	clusterConsoleCfg  config.ClusterConsoleConfig
+	hostShellCfg       config.HostShellConfig
 	dashboardService   *service.DashboardService
 	nodesService       *service.NodesService
 	podsService        *service.PodsService
@@ -80,6 +82,8 @@ func NewRouter(
 	aiInspectionRunner *AIInspectionRunner,
 	k8sManager *k8s.Manager,
 	redisCache *cache.RedisCache,
+	clusterConsoleCfg config.ClusterConsoleConfig,
+	hostShellCfg config.HostShellConfig,
 	observabilityCfg config.ObservabilityConfig,
 ) http.Handler {
 	h := &handler{
@@ -96,6 +100,8 @@ func NewRouter(
 		aiInspectionRunner: aiInspectionRunner,
 		k8sManager:         k8sManager,
 		redisCache:         redisCache,
+		clusterConsoleCfg:  clusterConsoleCfg,
+		hostShellCfg:       hostShellCfg,
 		dashboardService:   service.NewDashboardService(snapshotStore, k8sManager),
 		nodesService:       service.NewNodesService(snapshotStore, k8sManager),
 		podsService:        service.NewPodsService(snapshotStore, k8sManager),
@@ -143,6 +149,15 @@ func NewRouter(
 		r.Get("/", h.wrap(h.listAuditLogs))
 	})
 
+	router.Route("/api/cluster-console", func(r chi.Router) {
+		r.Get("/meta", h.wrap(h.clusterConsoleMeta))
+		r.Get("/ws", h.clusterConsoleWS)
+	})
+
+	router.Route("/api/node-shell", func(r chi.Router) {
+		r.Get("/meta", h.wrap(h.nodeShellMeta))
+	})
+
 	router.Route("/api/notifications", func(r chi.Router) {
 		r.Get("/", h.wrap(h.listNotifications))
 		r.Post("/read-all", h.wrap(h.markAllNotificationsRead))
@@ -157,6 +172,7 @@ func NewRouter(
 
 	router.Route("/api/nodes", func(r chi.Router) {
 		r.Get("/", h.wrap(h.listNodes))
+		r.Get("/{name}/shell", h.nodeShellWS)
 		r.Post("/{name}/cordon", h.wrap(h.cordonNode))
 		r.Post("/{name}/uncordon", h.wrap(h.uncordonNode))
 		r.Post("/{name}/maintenance/enable", h.wrap(h.enableNodeMaintenance))
@@ -170,6 +186,7 @@ func NewRouter(
 		r.Post("/{namespace}/{name}/restart", h.wrap(h.restartPod))
 		r.Get("/{namespace}/{name}/logs", h.wrap(h.podLogs))
 		r.Get("/{namespace}/{name}/metrics", h.wrap(h.podMetrics))
+		r.Get("/{namespace}/{name}/exec", h.podExecWS)
 		r.Post("/{namespace}/{name}/exec", h.podExec)
 		r.Get("/{namespace}/{name}", h.wrap(h.podDetail))
 		r.Delete("/{namespace}/{name}", h.wrap(h.deletePod))
@@ -372,7 +389,7 @@ func (h *handler) applyYAML(w http.ResponseWriter, r *http.Request) error {
 	return err
 }
 
-// podExec 处理 GET /api/pods/{namespace}/{name}/exec (WebSocket)
+// podExec 处理 POST /api/pods/{namespace}/{name}/exec
 func (h *handler) podExec(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	name := chi.URLParam(r, "name")

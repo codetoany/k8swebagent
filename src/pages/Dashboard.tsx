@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertCircle, AlertTriangle, BarChart3, Bell, ChevronDown, Cpu, Database, HardDrive, LogOut, Menu, Moon, Network, RefreshCw, Server, Settings, Shield, Sun, User, Wifi, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, BarChart3, Bell, ChevronDown, Cpu, Database, HardDrive, LogOut, Menu, Moon, Network, RefreshCw, Server, Settings, Shield, Sun, Terminal, User, Wifi, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { useClusterContext } from '@/contexts/clusterContext';
@@ -37,7 +37,7 @@ const EMPTY_OVERVIEW: Overview = { totalNodes: 0, onlineNodes: 0, offlineNodes: 
 const Dashboard = () => {
   const { theme, toggleTheme, isDark } = useThemeContext();
   const { enabledClusters, loading: clustersLoading, selectedCluster, setSelectedClusterId } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -266,6 +266,7 @@ const Dashboard = () => {
             <div className="p-4 space-y-1">
               {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard', true)}
               <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+              {hasPermission('cluster.console') ? navItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
               {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
               {navItem(<Settings size={20} />, '设置', '/settings')}
               {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -279,6 +280,7 @@ const Dashboard = () => {
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {navItem(<BarChart3 size={20} />, '仪表盘', '/dashboard', true)}
           <ResourceNavGroup isDark={theme === 'dark'} />
+          {hasPermission('cluster.console') ? navItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
           {navItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {navItem(<Settings size={20} />, '设置', '/settings')}
           {navItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}

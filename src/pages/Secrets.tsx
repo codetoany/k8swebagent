@@ -7,6 +7,7 @@ import apiClient from '@/lib/apiClient';
 import { secretsAPI, namespacesAPI, replacePathParams } from '@/lib/api';
 import PageLayout from '@/components/PageLayout';
 import TablePagination from '@/components/TablePagination';
+import ResourceYAMLPanel from '@/components/ResourceYAMLPanel';
 
 const Secrets = () => {
   const { theme } = useThemeContext();
@@ -108,6 +109,17 @@ const Secrets = () => {
                     {[['命名空间', selItem.namespace],['类型', selItem.type],['数据项', selItem.dataCount],['创建时间', selItem.age]].map(([l,v]) => <div key={l as string}><p className="text-xs text-gray-400">{l}</p><p className="text-sm font-medium">{String(v)}</p></div>)}
                   </div>
                   {detail?.dataKeys?.length > 0 && <div><h4 className="text-sm font-medium text-gray-400 mb-2">键名（值已脱敏）</h4><div className="flex flex-wrap gap-2">{detail.dataKeys.map((k: string) => <span key={k} className={`px-2.5 py-1 rounded text-xs font-mono ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}>{k}: ••••••</span>)}</div></div>}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400 mb-2">YAML</h4>
+                    <ResourceYAMLPanel
+                      clusterId={selectedCluster?.id}
+                      kind="Secret"
+                      version="v1"
+                      namespace={selItem.namespace}
+                      name={selItem.name}
+                      theme={theme}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

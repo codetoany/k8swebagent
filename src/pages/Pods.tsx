@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
     Moon, Sun, Menu, X, Search, Bell, ChevronDown, 
     RefreshCw, PlusCircle, MoreVertical, Filter, Download,
     AlertCircle, CheckCircle, ArrowUpDown, Eye, PauseCircle, 
-    PlayCircle, Trash2, Edit2, Clock, User, Shield,
+    PlayCircle, Terminal, Trash2, Edit2, Clock, User, Shield,
 
   } from 'lucide-react';
 import { useThemeContext } from '@/contexts/themeContext';
@@ -16,10 +16,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '@/lib/apiClient';
 import { namespacesAPI, podsAPI, replacePathParams } from '@/lib/api';
+import { canExecIntoPod, getPodExecUnavailableReason } from '@/lib/pods';
 import ClusterSelector from '@/components/ClusterSelector';
 import TablePagination from '@/components/TablePagination';
 import NotificationCenter from '@/components/NotificationCenter';
 import ResourceNavGroup from '@/components/ResourceNavGroup';
+import PodExecModal from '@/components/PodExecModal';
 
 const podsData: any[] = [];
 const namespaces = ['全部'];
@@ -32,7 +34,7 @@ const Pods = () => {
     selectedCluster,
     setSelectedClusterId,
   } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -49,7 +51,9 @@ const Pods = () => {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsRefreshNonce, setLogsRefreshNonce] = useState(0);
   const [actionLoadingKey, setActionLoadingKey] = useState('');
+  const [execPod, setExecPod] = useState<any>(null);
   const currentTheme = isDark ? 'dark' : 'light';
+  const canWritePods = hasPermission('pods:write');
 
   const clusterParams = selectedCluster?.id ? { clusterId: selectedCluster.id } : undefined;
 
@@ -168,6 +172,11 @@ const Pods = () => {
   };
 
   const handleDeletePod = async (pod: any) => {
+    if (!canWritePods) {
+      toast.error('当前账号没有 Pod 操作权限');
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除 Pod "${pod.name}" 吗？`);
     if (!confirmed) {
       return;
@@ -199,8 +208,33 @@ const Pods = () => {
     }
   };
 
+  const handleOpenExecTerminal = (pod: any) => {
+    if (!pod) {
+      return;
+    }
+
+    setSelectedPod(pod);
+
+    if (!canWritePods) {
+      toast.error('当前账号没有 Pod 操作权限');
+      return;
+    }
+
+    if (!canExecIntoPod(pod)) {
+      toast.error(getPodExecUnavailableReason(pod));
+      return;
+    }
+
+    setExecPod(pod);
+  };
+
   // 过滤和排序 Pods
   const handleRestartPod = async (pod: any) => {
+    if (!canWritePods) {
+      toast.error('当前账号没有 Pod 操作权限');
+      return;
+    }
+
     const confirmed = window.confirm(`Confirm restart for Pod "${pod.name}"?`);
     if (!confirmed) {
       return;
@@ -498,6 +532,7 @@ const Pods = () => {
             </div>
             
             <div className="flex justify-end space-x-3">
+              {canWritePods && (
               <button
                 className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} text-sm`}
                 onClick={() => setLogsRefreshNonce((value) => value + 1)}
@@ -506,6 +541,25 @@ const Pods = () => {
                 <RefreshCw size={16} className={`inline mr-1 ${logsLoading ? 'animate-spin' : ''}`} />
                 刷新日志
               </button>
+              )}
+              {canWritePods && (
+              <button
+                className={`px-4 py-2 rounded-lg text-sm text-white ${
+                  canExecIntoPod(selectedPod)
+                    ? theme === 'dark'
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-blue-500 hover:bg-blue-600'
+                    : 'cursor-not-allowed bg-slate-500/70'
+                }`}
+                onClick={() => handleOpenExecTerminal(selectedPod)}
+                title={canExecIntoPod(selectedPod) ? '进入 Pod 终端' : getPodExecUnavailableReason(selectedPod)}
+                aria-disabled={!canExecIntoPod(selectedPod)}
+              >
+                <PlayCircle size={16} className="inline mr-1" />
+                Exec
+              </button>
+              )}
+              {canWritePods && (
               <button
                 className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'} text-white text-sm`}
                 onClick={() => void handleRestartPod(selectedPod)}
@@ -521,6 +575,7 @@ const Pods = () => {
                   ? 'Restarting...'
                   : 'Restart Pod'}
               </button>
+              )}
               <button
                 className={`px-4 py-2 rounded-lg ${theme === 'dark' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'} text-white text-sm`}
                 onClick={() => void handleDeletePod(selectedPod)}
@@ -581,6 +636,7 @@ const Pods = () => {
             <div className="p-4 space-y-1">
                {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
                <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+               {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
                {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
                {renderNavItem(<Settings size={20} />, '设置', '/settings')}
             </div>
@@ -597,6 +653,7 @@ const Pods = () => {
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
           <ResourceNavGroup isDark={theme === 'dark'} />
+          {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
           {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs')}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -871,6 +928,25 @@ const Pods = () => {
                               >
                                 <Eye size={16} />
                               </button>
+                              {canWritePods ? (
+                                <button
+                                  className={`p-1 rounded ${
+                                    canExecIntoPod(pod)
+                                      ? theme === 'dark'
+                                        ? 'hover:bg-gray-700'
+                                        : 'hover:bg-gray-200'
+                                      : 'cursor-not-allowed opacity-50'
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenExecTerminal(pod);
+                                  }}
+                                  title={canExecIntoPod(pod) ? '进入 Pod 终端' : getPodExecUnavailableReason(pod)}
+                                  aria-disabled={!canExecIntoPod(pod)}
+                                >
+                                  <PlayCircle size={16} />
+                                </button>
+                              ) : null}
                               <button 
                                 className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
                                 onClick={(e) => e.stopPropagation()}
@@ -908,6 +984,14 @@ const Pods = () => {
               
               {/* Pod 详情弹窗 */}
               {renderPodDetail()}
+              {execPod ? (
+                <PodExecModal
+                  pod={execPod}
+                  clusterId={selectedCluster?.id}
+                  theme={theme}
+                  onClose={() => setExecPod(null)}
+                />
+              ) : null}
             </motion.div>
           )}
         </main>

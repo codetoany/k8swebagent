@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k8s-agent-host-shell
+  namespace: k8s-agent-system
+  labels:
+    app.kubernetes.io/name: k8s-agent-host-shell
+    app.kubernetes.io/part-of: k8s-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-agent-host-shell
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8s-agent-host-shell
+        app.kubernetes.io/part-of: k8s-agent
+    spec:
+      hostPID: true
+      hostIPC: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 5
+      tolerations:
+        - operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: host-shell
+          image: debian:bookworm-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              if ! command -v nsenter >/dev/null 2>&1; then
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update >/tmp/host-shell-apt.log 2>&1
+                apt-get install -y util-linux >/tmp/host-shell-apt.log 2>&1
+              fi
+              trap : TERM INT
+              sleep infinity & wait
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -lc
+                - command -v nsenter >/dev/null 2>&1 && test -x /host/bin/sh
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+          stdin: true
+          tty: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              mountPropagation: HostToContainer
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory

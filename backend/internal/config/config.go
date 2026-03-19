@@ -51,13 +51,33 @@ type ObservabilityConfig struct {
 	LokiQueryTemplate     string
 }
 
+type ClusterConsoleConfig struct {
+	Enabled               bool
+	SessionTimeoutSeconds int
+	ShellPath             string
+	KubectlPath           string
+}
+
+type HostShellConfig struct {
+	Enabled               bool
+	SessionTimeoutSeconds int
+	Namespace             string
+	DaemonSetName         string
+	PodLabelSelector      string
+	ContainerName         string
+	ShellPath             string
+	EnterCommand          string
+}
+
 type Config struct {
-	Port          int
-	PG            PGConfig
-	Redis         RedisConfig
-	K8s           K8sConfig
-	AI            AIConfig
-	Observability ObservabilityConfig
+	Port           int
+	PG             PGConfig
+	Redis          RedisConfig
+	K8s            K8sConfig
+	AI             AIConfig
+	ClusterConsole ClusterConsoleConfig
+	HostShell      HostShellConfig
+	Observability  ObservabilityConfig
 }
 
 func Load() Config {
@@ -91,6 +111,22 @@ func Load() Config {
 		AI: AIConfig{
 			InspectionIntervalSeconds:     toInt(os.Getenv("AI_INSPECTION_INTERVAL_SECONDS"), 600),
 			InspectionStartupDelaySeconds: toInt(os.Getenv("AI_INSPECTION_STARTUP_DELAY_SECONDS"), 15),
+		},
+		ClusterConsole: ClusterConsoleConfig{
+			Enabled:               toBool(os.Getenv("CLUSTER_CONSOLE_ENABLED"), false),
+			SessionTimeoutSeconds: toInt(os.Getenv("CLUSTER_CONSOLE_SESSION_TIMEOUT_SECONDS"), 1800),
+			ShellPath:             toString(os.Getenv("CLUSTER_CONSOLE_SHELL_PATH"), "/bin/sh"),
+			KubectlPath:           toString(os.Getenv("CLUSTER_CONSOLE_KUBECTL_PATH"), "kubectl"),
+		},
+		HostShell: HostShellConfig{
+			Enabled:               toBool(os.Getenv("HOST_SHELL_ENABLED"), false),
+			SessionTimeoutSeconds: toInt(os.Getenv("HOST_SHELL_SESSION_TIMEOUT_SECONDS"), 1800),
+			Namespace:             toString(os.Getenv("HOST_SHELL_NAMESPACE"), "k8s-agent-system"),
+			DaemonSetName:         toString(os.Getenv("HOST_SHELL_DAEMONSET_NAME"), "k8s-agent-host-shell"),
+			PodLabelSelector:      toString(os.Getenv("HOST_SHELL_POD_LABEL_SELECTOR"), "app.kubernetes.io/name=k8s-agent-host-shell"),
+			ContainerName:         toString(os.Getenv("HOST_SHELL_CONTAINER_NAME"), "host-shell"),
+			ShellPath:             toString(os.Getenv("HOST_SHELL_SHELL_PATH"), "/bin/sh"),
+			EnterCommand:          toString(os.Getenv("HOST_SHELL_ENTER_COMMAND"), "nsenter -t 1 -m -u -i -n -p -- chroot /proc/1/root /bin/sh -l"),
 		},
 		Observability: ObservabilityConfig{
 			TimeoutSeconds:        toInt(os.Getenv("OBSERVABILITY_TIMEOUT_SECONDS"), 15),

@@ -24,6 +24,7 @@ import {
   ArrowUpDown,
   Eye,
   Shield,
+  Terminal,
   Package,
   Layers,
   Repeat,
@@ -103,7 +104,7 @@ const Workloads = () => {
     selectedCluster,
     setSelectedClusterId,
   } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -124,6 +125,7 @@ const Workloads = () => {
   const currentTheme = isDark ? "dark" : "light";
   const [scaleEditorOpen, setScaleEditorOpen] = useState(false);
   const [scaleReplicas, setScaleReplicas] = useState("");
+  const canWriteWorkloads = hasPermission("workloads:write");
 
   const clusterParams = selectedCluster?.id
     ? { clusterId: selectedCluster.id }
@@ -296,6 +298,11 @@ const Workloads = () => {
   };
 
   const openScaleEditor = (workload: any) => {
+    if (!canWriteWorkloads) {
+      toast.error("当前账号没有工作负载操作权限");
+      return;
+    }
+
     if (!supportsScaling(workload.type)) {
       toast.error("当前工作负载类型暂不支持扩缩容");
       return;
@@ -305,6 +312,11 @@ const Workloads = () => {
   };
 
   const handleScaleSubmit = async () => {
+    if (!canWriteWorkloads) {
+      toast.error("当前账号没有工作负载操作权限");
+      return;
+    }
+
     if (!selectedWorkload) {
       return;
     }
@@ -352,6 +364,11 @@ const Workloads = () => {
   };
 
   const handleRestart = async (workload: any) => {
+    if (!canWriteWorkloads) {
+      toast.error("当前账号没有工作负载操作权限");
+      return;
+    }
+
     const endpointTemplate = restartEndpoints[workload.type];
     if (!endpointTemplate) {
       toast.error("当前工作负载类型暂不支持重启");
@@ -383,6 +400,11 @@ const Workloads = () => {
 
   // 过滤和排序工作负载
   const handleDeleteWorkload = async (workload: any) => {
+    if (!canWriteWorkloads) {
+      toast.error("当前账号没有工作负载操作权限");
+      return;
+    }
+
     const endpointTemplate = deleteEndpoints[workload.type];
     if (!endpointTemplate) {
       toast.error("Delete is not supported for this workload type");
@@ -434,6 +456,11 @@ const Workloads = () => {
   };
 
   const handleTogglePause = async (workload: any) => {
+    if (!canWriteWorkloads) {
+      toast.error("当前账号没有工作负载操作权限");
+      return;
+    }
+
     const paused = workload?.paused === true;
     const endpointTemplate = paused ? resumeEndpoints[workload.type] : pauseEndpoints[workload.type];
     if (!endpointTemplate) {
@@ -746,6 +773,7 @@ const Workloads = () => {
                     操作
                   </h4>
                   <div className="flex flex-wrap gap-2">
+                    {canWriteWorkloads && (
                     <button
                       className={`px-3 py-1.5 rounded text-xs font-medium transition-opacity ${
                         scaleSupported
@@ -759,6 +787,8 @@ const Workloads = () => {
                     >
                       扩缩容
                     </button>
+                    )}
+                    {canWriteWorkloads && (
                     <button
                       className={`px-3 py-1.5 rounded text-xs font-medium transition-opacity ${
                         restartSupported
@@ -772,6 +802,8 @@ const Workloads = () => {
                     >
                       重启
                     </button>
+                    )}
+                    {canWriteWorkloads && (
                     <button
                       className={`px-3 py-1.5 rounded text-xs font-medium ${
                         pauseSupported
@@ -791,6 +823,8 @@ const Workloads = () => {
                           ? "Resume"
                           : "Pause"}
                     </button>
+                    )}
+                    {canWriteWorkloads && (
                     <button
                       className={`px-3 py-1.5 rounded text-xs font-medium ${
                         theme === "dark"
@@ -801,6 +835,7 @@ const Workloads = () => {
                     >
                       Edit
                     </button>
+                    )}
                     <button
                       className={`px-3 py-1.5 rounded text-[0px] font-medium transition-opacity before:content-['Delete'] before:text-xs before:font-medium before:text-current ${
                         deleteSupported
@@ -835,7 +870,7 @@ const Workloads = () => {
                       查看 Pods
                     </button>
                   </div>
-                  {scaleEditorOpen && scaleSupported && (
+                  {canWriteWorkloads && scaleEditorOpen && scaleSupported && (
                     <div
                       className={`mt-3 rounded-lg border p-3 ${theme === "dark" ? "border-gray-700 bg-gray-750" : "border-gray-200 bg-gray-50"}`}
                     >
@@ -1011,6 +1046,7 @@ const Workloads = () => {
             <div className="p-4 space-y-1">
               {renderNavItem(<BarChart3 size={20} />, "仪表盘", "/dashboard")}
               <ResourceNavGroup isDark={theme === "dark"} onNavigate={() => setSidebarOpen(false)} />
+              {hasPermission("cluster.console") ? renderNavItem(<Terminal size={20} />, "集群命令台", "/cluster-console") : null}
               {renderNavItem(<Shield size={20} />, "操作审计", "/audit-logs")}
               {renderNavItem(<Settings size={20} />, "设置", "/settings")}
             </div>
@@ -1029,6 +1065,7 @@ const Workloads = () => {
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {renderNavItem(<BarChart3 size={20} />, "仪表盘", "/dashboard")}
           <ResourceNavGroup isDark={theme === "dark"} />
+          {hasPermission("cluster.console") ? renderNavItem(<Terminal size={20} />, "集群命令台", "/cluster-console") : null}
           {renderNavItem(<Shield size={20} />, "操作审计", "/audit-logs")}
           {renderNavItem(<Settings size={20} />, "设置", "/settings")}
           {renderNavItem(<AlertCircle size={20} />, "AI 诊断", "/ai-diagnosis")}

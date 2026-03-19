@@ -14,6 +14,7 @@ import {
   Settings,
   Shield,
   Sun,
+  Terminal,
   User,
   X,
 } from 'lucide-react';
@@ -58,7 +59,7 @@ function formatAuditTime(value: string) {
 export default function AuditLogs() {
   const { theme, toggleTheme, isDark } = useThemeContext();
   const { clusters, selectedClusterId } = useClusterContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -238,6 +239,7 @@ export default function AuditLogs() {
             <div className="p-4 space-y-1">
               {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
               <ResourceNavGroup isDark={theme === 'dark'} onNavigate={() => setSidebarOpen(false)} />
+              {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
               {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs', true)}
               {renderNavItem(<Settings size={20} />, '设置', '/settings')}
               {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}
@@ -258,6 +260,7 @@ export default function AuditLogs() {
         <div className="p-4 space-y-1 flex-1 overflow-y-auto">
           {renderNavItem(<BarChart3 size={20} />, '仪表盘', '/dashboard')}
           <ResourceNavGroup isDark={theme === 'dark'} />
+          {hasPermission('cluster.console') ? renderNavItem(<Terminal size={20} />, '集群命令台', '/cluster-console') : null}
           {renderNavItem(<Shield size={20} />, '操作审计', '/audit-logs', true)}
           {renderNavItem(<Settings size={20} />, '设置', '/settings')}
           {renderNavItem(<AlertCircle size={20} />, 'AI 诊断', '/ai-diagnosis')}

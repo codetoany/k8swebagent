@@ -15,6 +15,7 @@ import ConfigMaps from '@/pages/ConfigMaps';
 import Secrets from '@/pages/Secrets';
 import Storage from '@/pages/Storage';
 import Events from '@/pages/Events';
+import ClusterConsole from '@/pages/ClusterConsole';
 import { AuthContext } from '@/contexts/authContext';
 import { ClusterProvider } from '@/contexts/clusterContext';
 import { ThemeProvider } from '@/contexts/themeContext';
@@ -32,7 +33,7 @@ type GuardProps = {
   currentUser: UserInfo | null;
 };
 
-const AccessDenied = () => (
+export const AccessDenied = () => (
   <div className="flex min-h-screen items-center justify-center bg-gray-900 px-6 text-white">
     <div className="max-w-md rounded-2xl border border-gray-700 bg-gray-800 p-8 text-center shadow-xl">
       <h2 className="mb-3 text-2xl font-semibold">无权访问</h2>
@@ -41,7 +42,7 @@ const AccessDenied = () => (
   </div>
 );
 
-const ProtectedRoute = ({
+export const ProtectedRoute = ({
   isAuthenticated,
   authLoading,
   children,
@@ -323,6 +324,19 @@ export default function App() {
                   permission="events:read"
                 >
                   <Events />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cluster-console"
+              element={
+                <ProtectedRoute
+                  isAuthenticated={isAuthenticated}
+                  authLoading={authLoading}
+                  currentUser={currentUser}
+                  permission="cluster.console"
+                >
+                  <ClusterConsole />
                 </ProtectedRoute>
               }
             />

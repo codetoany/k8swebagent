@@ -22,6 +22,7 @@ import {
   Shield,
   ShieldAlert,
   Sun,
+  Terminal,
   Trash2,
   User,
   X,
@@ -911,7 +912,7 @@ function ReportCard({
 
 export default function AIDiagnosis() {
   const { theme, toggleTheme } = useThemeContext();
-  const { logout } = useContext(AuthContext);
+  const { logout, hasPermission } = useContext(AuthContext);
   const { enabledClusters, selectedCluster, selectedClusterId, setSelectedClusterId, loading: clusterLoading } = useClusterContext();
   const navigate = useNavigate();
   const location = useLocation();
@@ -947,6 +948,7 @@ export default function AIDiagnosis() {
   const [templateDraft, setTemplateDraft] = useState({ title: '', description: '', category: '', prompt: '' });
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [actionSubmitting, setActionSubmitting] = useState('');
+  const canWriteDiagnosis = hasPermission('diagnosis:write');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState('');
   const [inputMessage, setInputMessage] = useState('');
   const [runningInspection, setRunningInspection] = useState(false);
@@ -1603,6 +1605,7 @@ export default function AIDiagnosis() {
             <div className="space-y-1 p-4">
               {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
               <ResourceNavGroup isDark={isDark} onNavigate={() => setSidebarOpen(false)} />
+              {hasPermission('cluster.console') ? navItem(<Terminal />, '集群命令台', '/cluster-console') : null}
               {navItem(<Shield />, '操作审计', '/audit-logs')}
               {navItem(<Settings />, '设置', '/settings')}
               {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}
@@ -1620,6 +1623,7 @@ export default function AIDiagnosis() {
           <div className="p-4 space-y-1 flex-1 overflow-y-auto">
             {navItem(<BarChart3 />, '仪表盘', '/dashboard')}
             <ResourceNavGroup isDark={isDark} />
+            {hasPermission('cluster.console') ? navItem(<Terminal />, '集群命令台', '/cluster-console') : null}
             {navItem(<Shield />, '操作审计', '/audit-logs')}
             {navItem(<Settings />, '设置', '/settings')}
             {navItem(<AlertCircle />, 'AI 诊断', '/ai-diagnosis')}

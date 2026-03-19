@@ -32,6 +32,10 @@ export function getAuditActionLabel(action: string) {
       return '删除集群';
     case 'cluster.test':
       return '测试连接';
+    case 'cluster.console':
+      return '集群命令台';
+    case 'node.shell':
+      return '节点终端';
     case 'settings.update':
       return '更新通用设置';
     case 'settings.notifications.update':
@@ -94,6 +98,8 @@ export const auditActionOptions = [
   { value: 'cluster.update', label: '更新集群' },
   { value: 'cluster.delete', label: '删除集群' },
   { value: 'cluster.test', label: '测试连接' },
+  { value: 'cluster.console', label: '集群命令台' },
+  { value: 'node.shell', label: '节点终端' },
   { value: 'settings.update', label: '更新通用设置' },
   { value: 'settings.notifications.update', label: '更新通知设置' },
   { value: 'settings.ai-models.update', label: '更新 AI 模型' },
